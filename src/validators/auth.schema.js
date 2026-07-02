@@ -11,7 +11,12 @@ const password = z
   .regex(/\d/, 'Password must include a number');
 
 const fullName = z.string().trim().min(2).max(120);
-const matricNumber = z.string().trim().toUpperCase().min(3).max(20);
+// Optional: blank/whitespace is normalized to "not provided" so the sparse
+// unique index isn't tripped by multiple empty strings.
+const matricNumber = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z.string().trim().toUpperCase().min(3).max(20).optional(),
+);
 const token = z.string().min(1).max(256);
 
 export const registerSchema = z.object({
