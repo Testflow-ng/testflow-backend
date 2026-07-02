@@ -1,24 +1,42 @@
-import dotenv from 'dotenv';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import compression from 'compression';
-import cookieParser from 'cookie-parser';
+import app from './app.js';
+import { config } from './config/env.js';
+import { connectDB, disconnectDB } from './config/db.js';
+import { logger } from './utils/logger.js';
 
-dotenv.config();
+const start = async () => {
+  await connectDB();
 
-const app = express();
-const PORT = process.env.PORT || 5000;
+  const server = app.listen(config.PORT, () => {
+    logger.info(`TestFlow API listening on port ${config.PORT} [${config.NODE_ENV}]`);
+  });
 
-app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
-app.use(compression());
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+  const shutdown = (signal) => {
+    logger.warn(`${signal} received, shutting down gracefully`);
+    server.close(async () => {
+      await disconnectDB();
+      process.exit(0);
+    });
+    // Force-exit if graceful shutdown stalls.
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
 
-app.listen(PORT, () => {
-  console.log(`TestFlow server listening on port ${PORT}`);
+  ['SIGTERM', 'SIGINT'].forEach((signal) => process.on(signal, () => shutdown(signal)));
+
+  // Log unhandled rejections but keep serving — one stray rejection must not
+  // take the whole API down.
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled promise rejection', reason);
+  });
+
+  // An uncaught synchronous exception leaves the process in an undefined state:
+  // log and shut down in a controlled way.
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught exception', error);
+    shutdown('uncaughtException');
+  });
+};
+
+start().catch((error) => {
+  logger.error('Failed to start server', error);
+  process.exit(1);
 });
