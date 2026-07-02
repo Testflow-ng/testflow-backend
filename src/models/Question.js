@@ -17,8 +17,9 @@ const questionSchema = new mongoose.Schema(
           Array.isArray(arr) &&
           arr.length >= 2 &&
           arr.length <= 6 &&
-          arr.every((option) => typeof option === 'string' && option.trim().length > 0),
-        message: 'A question must have between 2 and 6 non-empty options.',
+          arr.every((option) => typeof option === 'string' && option.trim().length > 0) &&
+          new Set(arr.map((option) => option.trim().toLowerCase())).size === arr.length,
+        message: 'A question must have 2 to 6 distinct, non-empty options.',
       },
     },
     correctIndex: { type: Number, required: true, min: 0 },
@@ -39,6 +40,8 @@ questionSchema.pre('validate', function validateCorrectIndex(next) {
 });
 
 questionSchema.index({ subject: 1, isActive: 1 });
+// Backs the admin list query (filter by subject, sort by newest).
+questionSchema.index({ subject: 1, createdAt: -1 });
 
 // NOTE: this transform intentionally keeps correctIndex/explanation — question
 // routes are admin-only. The exam engine (Phase 4) must project those out when

@@ -8,7 +8,8 @@ export const listSubjects = asyncHandler(async (req, res) => {
 });
 
 export const getSubject = asyncHandler(async (req, res) => {
-  const subject = await subjectService.getSubjectByCode(req.params.code);
+  const includeInactive = req.user?.role === 'admin';
+  const subject = await subjectService.getSubjectByCode(req.params.code, { includeInactive });
   res.json({ subject });
 });
 

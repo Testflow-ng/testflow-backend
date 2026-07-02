@@ -19,8 +19,10 @@ export const listSubjects = async ({ includeInactive = false } = {}) => {
   }));
 };
 
-export const getSubjectByCode = async (code) => {
-  const subject = await Subject.findOne({ code: code.toUpperCase() });
+export const getSubjectByCode = async (code, { includeInactive = false } = {}) => {
+  const filter = { code: code.toUpperCase() };
+  if (!includeInactive) filter.isActive = true;
+  const subject = await Subject.findOne(filter);
   if (!subject) {
     throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
   }

@@ -25,7 +25,8 @@ const run = async () => {
   process.exit(0);
 };
 
-run().catch((error) => {
+run().catch(async (error) => {
   logger.error('Subject seed failed', error);
+  await disconnectDB().catch(() => {});
   process.exit(1);
 });

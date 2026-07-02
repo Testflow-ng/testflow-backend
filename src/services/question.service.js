@@ -7,8 +7,13 @@ const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 /** Resolve a subject reference (ObjectId or code like "PHY102") to its ObjectId. */
 const resolveSubjectId = async (subjectRef) => {
   if (OBJECT_ID.test(subjectRef)) {
+    // An id-shaped input is an id lookup; a miss is a hard 404 (don't reinterpret
+    // a 24-char hex string as a subject code).
     const byId = await Subject.findById(subjectRef);
-    if (byId) return byId._id;
+    if (!byId) {
+      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
+    }
+    return byId._id;
   }
   const byCode = await Subject.findOne({ code: String(subjectRef).toUpperCase() });
   if (!byCode) {
@@ -27,17 +32,16 @@ export const listQuestions = async ({ subject, difficulty, page = 1, limit = 20 
   if (subject) filter.subject = await resolveSubjectId(subject);
   if (difficulty) filter.difficulty = difficulty;
 
-  const skip = (page - 1) * limit;
-  const [items, total] = await Promise.all([
-    Question.find(filter)
-      .populate('subject', 'code title')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit),
-    Question.countDocuments(filter),
-  ]);
+  const total = await Question.countDocuments(filter);
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, pages); // avoid runaway skip past the last page
+  const items = await Question.find(filter)
+    .populate('subject', 'code title')
+    .sort({ createdAt: -1 })
+    .skip((safePage - 1) * limit)
+    .limit(limit);
 
-  return { items, total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) };
+  return { items, total, page: safePage, limit, pages };
 };
 
 export const getQuestion = async (id) => {
