@@ -1,0 +1,27 @@
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import * as questionService from '../services/question.service.js';
+
+export const createQuestion = asyncHandler(async (req, res) => {
+  const question = await questionService.createQuestion(req.body, req.user._id);
+  res.status(201).json({ question });
+});
+
+export const listQuestions = asyncHandler(async (req, res) => {
+  const result = await questionService.listQuestions(req.query);
+  res.json(result);
+});
+
+export const getQuestion = asyncHandler(async (req, res) => {
+  const question = await questionService.getQuestion(req.params.id);
+  res.json({ question });
+});
+
+export const updateQuestion = asyncHandler(async (req, res) => {
+  const question = await questionService.updateQuestion(req.params.id, req.body);
+  res.json({ question });
+});
+
+export const deleteQuestion = asyncHandler(async (req, res) => {
+  await questionService.deleteQuestion(req.params.id);
+  res.status(204).send();
+});
