@@ -30,3 +30,8 @@ export const listSessions = asyncHandler(async (req, res) => {
   const sessions = await sessionService.listSessions(req.user._id);
   res.json({ sessions });
 });
+
+export const getStats = asyncHandler(async (req, res) => {
+  const stats = await sessionService.getStats(req.user._id);
+  res.json({ stats });
+});

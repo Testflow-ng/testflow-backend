@@ -14,6 +14,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', session.listSessions);
+router.get('/stats', session.getStats); // must precede '/:id'
 // Starting an exam requires a verified email (integrity of graded attempts).
 router.post('/', requireVerified, validate(startSessionSchema), session.startSession);
 router.get('/:id', validate(sessionIdSchema), session.getSession);

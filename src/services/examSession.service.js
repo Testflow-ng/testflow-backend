@@ -255,3 +255,62 @@ export const listSessions = async (studentId) => {
   const sessions = await ExamSession.find({ student: studentId }).sort({ createdAt: -1 }).limit(50);
   return sessions.map(toSummary);
 };
+
+export const getStats = async (studentId) => {
+  const match = { student: studentId, status: 'submitted' };
+
+  const [overall] = await ExamSession.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: null,
+        totalExams: { $sum: 1 },
+        averageScore: { $avg: '$score' },
+        bestScore: { $max: '$score' },
+        totalCorrect: { $sum: '$correctCount' },
+        totalAnswered: { $sum: '$totalQuestions' },
+      },
+    },
+  ]);
+
+  const perSubject = await ExamSession.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: '$subjectCode',
+        attempts: { $sum: 1 },
+        averageScore: { $avg: '$score' },
+        bestScore: { $max: '$score' },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ]);
+
+  const recent = await ExamSession.find(match)
+    .sort({ submittedAt: -1 })
+    .limit(10)
+    .select('subjectCode score submittedAt');
+
+  return {
+    totalExams: overall?.totalExams ?? 0,
+    averageScore: overall ? Math.round(overall.averageScore) : 0,
+    bestScore: overall?.bestScore ?? 0,
+    totalCorrect: overall?.totalCorrect ?? 0,
+    totalAnswered: overall?.totalAnswered ?? 0,
+    perSubject: perSubject.map((entry) => ({
+      subjectCode: entry._id,
+      attempts: entry.attempts,
+      averageScore: Math.round(entry.averageScore),
+      bestScore: entry.bestScore,
+    })),
+    // Oldest -> newest so charts read left to right.
+    recent: recent
+      .map((doc) => ({
+        id: String(doc._id),
+        subjectCode: doc.subjectCode,
+        score: doc.score,
+        submittedAt: doc.submittedAt,
+      }))
+      .reverse(),
+  };
+};
