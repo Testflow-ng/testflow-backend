@@ -286,11 +286,6 @@ export const getStats = async (studentId) => {
     { $sort: { _id: 1 } },
   ]);
 
-  const recent = await ExamSession.find(match)
-    .sort({ submittedAt: -1 })
-    .limit(10)
-    .select('subjectCode score submittedAt');
-
   return {
     totalExams: overall?.totalExams ?? 0,
     averageScore: overall ? Math.round(overall.averageScore) : 0,
@@ -303,14 +298,5 @@ export const getStats = async (studentId) => {
       averageScore: Math.round(entry.averageScore),
       bestScore: entry.bestScore,
     })),
-    // Oldest -> newest so charts read left to right.
-    recent: recent
-      .map((doc) => ({
-        id: String(doc._id),
-        subjectCode: doc.subjectCode,
-        score: doc.score,
-        submittedAt: doc.submittedAt,
-      }))
-      .reverse(),
   };
 };
