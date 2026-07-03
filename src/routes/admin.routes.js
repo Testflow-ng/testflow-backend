@@ -9,5 +9,6 @@ const router = Router();
 router.use(authenticate, authorize('admin'));
 
 router.get('/stats', admin.getDashboardStats);
+router.get('/students', admin.listStudents);
 
 export default router;

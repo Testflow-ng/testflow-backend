@@ -49,3 +49,27 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     recentUsers
   });
 });
+
+export const listStudents = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 20, search } = req.query;
+  const filter = { role: 'student' };
+
+  if (search) {
+    filter.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { matricNumber: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  const total = await User.countDocuments(filter);
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, pages);
+
+  const items = await User.find(filter)
+    .sort({ createdAt: -1 })
+    .skip((safePage - 1) * limit)
+    .limit(limit);
+
+  res.json({ items, total, page: safePage, limit, pages });
+});
