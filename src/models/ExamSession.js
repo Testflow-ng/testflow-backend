@@ -42,8 +42,12 @@ const examSessionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// One student has at most one in-progress session per subject (resume target).
-examSessionSchema.index({ student: 1, subject: 1, status: 1 });
+// At most one in-progress session per student+subject (enforces the resume
+// invariant even under a start race).
+examSessionSchema.index(
+  { student: 1, subject: 1 },
+  { unique: true, partialFilterExpression: { status: 'in_progress' } },
+);
 examSessionSchema.index({ student: 1, createdAt: -1 });
 
 // Defense in depth: even if a raw session is ever serialized, strip the answer key.

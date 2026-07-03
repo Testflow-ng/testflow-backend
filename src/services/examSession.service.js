@@ -148,18 +148,30 @@ export const startSession = async (studentId, { subject: subjectRef, questionCou
   const startedAt = new Date();
   const expiresAt = new Date(startedAt.getTime() + durationMinutes * 60 * 1000);
 
-  const session = await ExamSession.create({
-    student: studentId,
-    subject: subject._id,
-    subjectCode: subject.code,
-    durationMinutes,
-    startedAt,
-    expiresAt,
-    questions,
-    totalQuestions: questions.length,
-  });
-
-  return toExamView(session);
+  try {
+    const session = await ExamSession.create({
+      student: studentId,
+      subject: subject._id,
+      subjectCode: subject.code,
+      durationMinutes,
+      startedAt,
+      expiresAt,
+      questions,
+      totalQuestions: questions.length,
+    });
+    return toExamView(session);
+  } catch (caught) {
+    // Lost a race with a concurrent start (partial unique index): resume theirs.
+    if (caught.code === 11000) {
+      const existing = await ExamSession.findOne({
+        student: studentId,
+        subject: subject._id,
+        status: 'in_progress',
+      });
+      if (existing) return toExamView(existing);
+    }
+    throw caught;
+  }
 };
 
 export const getSession = async (studentId, id) => {
@@ -195,21 +207,33 @@ export const saveAnswer = async (studentId, id, { questionIndex, selectedOption,
     throw new AppError(400, 'INVALID_OPTION', 'Invalid option.');
   }
 
-  if (selectedOption !== undefined) question.selectedOption = selectedOption;
-  if (markedForReview !== undefined) question.markedForReview = markedForReview;
-  await session.save();
+  const updates = {};
+  if (selectedOption !== undefined) {
+    updates[`questions.${questionIndex}.selectedOption`] = selectedOption;
+  }
+  if (markedForReview !== undefined) {
+    updates[`questions.${questionIndex}.markedForReview`] = markedForReview;
+  }
+
+  // Targeted atomic write: concurrent autosaves on different questions must not
+  // clobber each other (a full-document save would). The filter re-checks
+  // status + expiry to close the check-to-write window.
+  await ExamSession.updateOne(
+    { _id: id, student: studentId, status: 'in_progress', expiresAt: { $gt: new Date() } },
+    { $set: updates },
+  );
 
   return {
     index: questionIndex,
-    selectedOption: question.selectedOption,
-    markedForReview: question.markedForReview,
+    selectedOption: selectedOption !== undefined ? selectedOption : question.selectedOption,
+    markedForReview: markedForReview !== undefined ? markedForReview : question.markedForReview,
   };
 };
 
 export const submitSession = async (studentId, id) => {
   const session = await loadOwned(studentId, id);
   if (session.status === 'in_progress') {
-    finalize(session);
+    finalize(session, isExpired(session) ? session.expiresAt : undefined);
     await session.save();
   }
   return toResultView(session);
