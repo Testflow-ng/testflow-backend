@@ -7,7 +7,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(5000),
+  PORT: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(5000)),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
   MONGODB_URI: z.string().min(1).default('mongodb://127.0.0.1:27017/testflow'),
 
@@ -19,14 +19,14 @@ const schema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
 
   SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_PORT: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().optional()),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
 
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
-  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
-  RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(300),
+  RATE_LIMIT_WINDOW_MS: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(15 * 60 * 1000)),
+  RATE_LIMIT_AUTH_MAX: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(10)),
+  RATE_LIMIT_API_MAX: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(300)),
 });
 
 const parsed = schema.safeParse(process.env);
