@@ -98,7 +98,10 @@ const toSummary = (session) => ({
   submittedAt: session.submittedAt ?? null,
 });
 
-export const startSession = async (studentId, { subject: subjectRef, questionCount }) => {
+export const startSession = async (
+  studentId,
+  { subject: subjectRef, questionCount, durationMinutes: requestedDuration },
+) => {
   const subject = await resolveSubject(subjectRef);
 
   // Resume an existing live session for this subject, or retire it if expired.
@@ -144,7 +147,15 @@ export const startSession = async (studentId, { subject: subjectRef, questionCou
     };
   });
 
-  const durationMinutes = Math.max(1, count * EXAM_CONFIG.minutesPerQuestion);
+  // Use the student's chosen time if provided (clamped), else default to
+  // one minute per question.
+  const durationMinutes = Math.min(
+    Math.max(
+      EXAM_CONFIG.minDurationMinutes,
+      requestedDuration ?? count * EXAM_CONFIG.minutesPerQuestion,
+    ),
+    EXAM_CONFIG.maxDurationMinutes,
+  );
   const startedAt = new Date();
   const expiresAt = new Date(startedAt.getTime() + durationMinutes * 60 * 1000);
 

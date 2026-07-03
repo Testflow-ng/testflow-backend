@@ -3,4 +3,6 @@ export const EXAM_CONFIG = {
   defaultQuestionCount: 20,
   maxQuestionCount: 50,
   minutesPerQuestion: 1,
+  minDurationMinutes: 1,
+  maxDurationMinutes: 180,
 };

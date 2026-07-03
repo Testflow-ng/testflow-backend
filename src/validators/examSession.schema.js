@@ -7,6 +7,7 @@ export const startSessionSchema = z.object({
     .object({
       subject: z.string().trim().min(1).max(24),
       questionCount: z.coerce.number().int().min(1).max(50).optional(),
+      durationMinutes: z.coerce.number().int().min(1).max(180).optional(),
     })
     .strict(),
 });
