@@ -8,6 +8,7 @@ import {
   updateQuestionSchema,
   questionIdSchema,
   listQuestionsSchema,
+  bulkCreateQuestionsSchema,
 } from '../validators/question.schema.js';
 
 const router = Router();
@@ -17,6 +18,7 @@ router.use(authenticate, authorize('admin'));
 
 router.get('/', validate(listQuestionsSchema), question.listQuestions);
 router.post('/', validate(createQuestionSchema), question.createQuestion);
+router.post('/bulk', validate(bulkCreateQuestionsSchema), question.bulkCreateQuestions);
 router.get('/:id', validate(questionIdSchema), question.getQuestion);
 router.patch('/:id', validate(updateQuestionSchema), question.updateQuestion);
 router.delete('/:id', validate(questionIdSchema), question.deleteQuestion);

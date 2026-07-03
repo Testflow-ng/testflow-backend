@@ -27,6 +27,23 @@ export const createQuestion = async (data, adminId) => {
   return Question.create({ ...data, subject, createdBy: adminId });
 };
 
+export const bulkCreateQuestions = async (questionsData, adminId) => {
+  // Resolve subjects for all questions. Map of code/id -> ObjectId to avoid redundant DB calls.
+  const subjectMap = new Map();
+  const questions = [];
+
+  for (const data of questionsData) {
+    let subjectId = subjectMap.get(data.subject);
+    if (!subjectId) {
+      subjectId = await resolveSubjectId(data.subject);
+      subjectMap.set(data.subject, subjectId);
+    }
+    questions.push({ ...data, subject: subjectId, createdBy: adminId });
+  }
+
+  return Question.insertMany(questions);
+};
+
 export const listQuestions = async ({ subject, difficulty, page = 1, limit = 20 }) => {
   const filter = {};
   if (subject) filter.subject = await resolveSubjectId(subject);

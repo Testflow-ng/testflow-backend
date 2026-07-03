@@ -6,6 +6,11 @@ export const createQuestion = asyncHandler(async (req, res) => {
   res.status(201).json({ question });
 });
 
+export const bulkCreateQuestions = asyncHandler(async (req, res) => {
+  const questions = await questionService.bulkCreateQuestions(req.body, req.user._id);
+  res.status(201).json({ count: questions.length });
+});
+
 export const listQuestions = asyncHandler(async (req, res) => {
   const result = await questionService.listQuestions(req.query);
   res.json(result);
