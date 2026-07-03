@@ -134,6 +134,10 @@ export const startSession = async (
     { $sample: { size: count } },
   ]);
 
+  if (!sampled.length) {
+    throw new AppError(500, 'SAMPLING_FAILED', 'Could not retrieve questions. Please try again.');
+  }
+
   const questions = sampled.map((question) => {
     const shuffled = shuffle(question.options.map((option, i) => ({ option, i })));
     return {

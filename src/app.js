@@ -22,7 +22,7 @@ app.disable('x-powered-by');
 app.use(helmet());
 app.use(
   cors({
-    origin: config.CLIENT_URL,
+    origin: config.CLIENT_URL.trim(),
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   }),

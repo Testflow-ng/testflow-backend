@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { generateToken, hashToken } from '../utils/tokens.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from './email.service.js';
+import { config } from '../config/env.js';
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -37,6 +38,7 @@ export const register = async ({ fullName, email, matricNumber, password }) => {
     matricNumber,
     passwordHash: password, // pre-save hook hashes this
     role: 'student',
+    isEmailVerified: !config.isProduction, // Auto-verify in dev
   });
   await issueVerification(user);
   return user;
