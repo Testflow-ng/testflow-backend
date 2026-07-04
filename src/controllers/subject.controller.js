@@ -24,3 +24,18 @@ export const createSubject = asyncHandler(async (req, res) => {
   const subject = await subjectService.createSubject(req.body);
   res.status(201).json({ subject });
 });
+
+export const updateSubject = asyncHandler(async (req, res) => {
+  const subject = await subjectService.updateSubject(req.params.code, req.body);
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'UPDATE_SUBJECT',
+    targetId: subject._id,
+    targetType: 'Subject',
+    metadata: { code: subject.code, updates: req.body },
+    req
+  });
+
+  res.json({ subject });
+});

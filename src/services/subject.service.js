@@ -50,10 +50,3 @@ export const updateSubject = async (code, updates) => {
   }
   return subject;
 };
-
-export const deleteSubject = async (id) => {
-  const subject = await Subject.findByIdAndDelete(id);
-  if (!subject) {
-    throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
-  }
-};
