@@ -19,14 +19,24 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-app.use(helmet());
+// CORS MUST come before Helmet and other middleware
 app.use(
   cors({
-    origin: config.CLIENT_URL.trim(),
+    origin: (origin, callback) => {
+      const allowed = config.CLIENT_URL.replace(/\/$/, ''); // Remove trailing slash for comparison
+      if (!origin || origin === allowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS blocked: Origin mismatch'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   }),
 );
+
+app.use(helmet());
 app.use(compression());
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
