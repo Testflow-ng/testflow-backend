@@ -8,7 +8,15 @@ export const notFound = (req, _res, next) => {
 
 // Express identifies error handlers by their 4-arg signature; `next` must stay.
 // eslint-disable-next-line no-unused-vars
-export const errorHandler = (err, _req, res, _next) => {
+export const errorHandler = (err, req, res, _next) => {
+  // Force CORS headers onto error responses so the frontend can actually read the error message
+  const origin = req.headers.origin;
+  const allowed = config.CLIENT_URL.replace(/\/$/, '');
+  if (origin === allowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
   let statusCode = err.statusCode ?? 500;
   // Only surface an error's own code when it's an operational AppError, so
   // internal codes (e.g. driver 'ECONNREFUSED') never leak to clients.
