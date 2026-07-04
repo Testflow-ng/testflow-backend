@@ -116,6 +116,41 @@ export const listAdmins = asyncHandler(async (req, res) => {
   res.json({ admins });
 });
 
+export const promoteToAdmin = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'super_admin') {
+    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can promote users.');
+  }
+
+  const { email } = req.body;
+  if (!email) {
+    throw new AppError(400, 'INVALID_INPUT', 'Email is required.');
+  }
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found with that email.');
+  }
+
+  if (user.role !== 'student') {
+    throw new AppError(400, 'ALREADY_STAFF', 'This user is already an admin or super admin.');
+  }
+
+  user.role = 'admin';
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1; // force logout to pick up new role
+  await user.save();
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'PROMOTE_ADMIN',
+    targetId: user._id,
+    targetType: 'User',
+    metadata: { email: user.email },
+    req
+  });
+
+  res.json({ user });
+});
+
 export const resetUserPassword = asyncHandler(async (req, res) => {
   const { password } = req.body;
   if (!password) {

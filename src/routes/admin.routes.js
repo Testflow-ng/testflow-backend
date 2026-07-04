@@ -17,5 +17,6 @@ router.get('/export-results', admin.exportResults);
 // Admin Management (Super Admin only)
 router.get('/roster', admin.listAdmins);
 router.post('/create', admin.createAdmin);
+router.post('/promote', admin.promoteToAdmin);
 
 export default router;
