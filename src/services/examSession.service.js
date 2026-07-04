@@ -138,18 +138,20 @@ export const startSession = async (
     throw new AppError(500, 'SAMPLING_FAILED', 'Could not retrieve questions. Please try again.');
   }
 
-  const questions = sampled.map((question) => {
-    const shuffled = shuffle(question.options.map((option, i) => ({ option, i })));
-    return {
-      question: question._id,
-      stem: question.stem,
-      options: shuffled.map((entry) => entry.option),
-      correctOption: shuffled.findIndex((entry) => entry.i === question.correctIndex),
-      explanation: question.explanation,
-      selectedOption: null,
-      markedForReview: false,
-    };
-  });
+  const questions = shuffle(
+    sampled.map((question) => {
+      const shuffledOptions = shuffle(question.options.map((option, i) => ({ option, i })));
+      return {
+        question: question._id,
+        stem: question.stem,
+        options: shuffledOptions.map((entry) => entry.option),
+        correctOption: shuffledOptions.findIndex((entry) => entry.i === question.correctIndex),
+        explanation: question.explanation,
+        selectedOption: null,
+        markedForReview: false,
+      };
+    }),
+  );
 
   // Use the student's chosen time if provided (clamped), else default to
   // one minute per question.
