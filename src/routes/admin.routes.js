@@ -10,6 +10,7 @@ router.use(authenticate, authorize('admin'));
 
 router.get('/stats', admin.getDashboardStats);
 router.get('/students', admin.listStudents);
+router.post('/students', admin.createStudent);
 router.patch('/students/:id/reset-password', admin.resetUserPassword);
 router.patch('/students/:id/toggle-status', admin.toggleUserStatus);
 router.get('/export-results', admin.exportResults);
@@ -18,5 +19,7 @@ router.get('/export-results', admin.exportResults);
 router.get('/roster', admin.listAdmins);
 router.post('/create', admin.createAdmin);
 router.post('/promote', admin.promoteToAdmin);
+router.patch('/demote/:id', admin.demoteAdmin);
+router.delete('/users/:id', admin.deleteUser);
 
 export default router;

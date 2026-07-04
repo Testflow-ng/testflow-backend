@@ -76,6 +76,37 @@ export const listStudents = asyncHandler(async (req, res) => {
   res.json({ items, total, page: safePage, limit, pages });
 });
 
+export const createStudent = asyncHandler(async (req, res) => {
+  const { fullName, email, matricNumber, password } = req.body;
+
+  const existing = await User.findOne({
+    $or: [{ email }, { matricNumber: matricNumber || undefined }]
+  });
+
+  if (existing) {
+    throw new AppError(409, 'CONFLICT', 'User with this email or matric number already exists.');
+  }
+
+  const user = await User.create({
+    fullName,
+    email,
+    matricNumber,
+    passwordHash: password,
+    role: 'student',
+    isEmailVerified: true
+  });
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'CREATE_STUDENT',
+    targetId: user._id,
+    targetType: 'User',
+    req
+  });
+
+  res.status(201).json({ user });
+});
+
 export const createAdmin = asyncHandler(async (req, res) => {
   if (req.user.role !== 'super_admin') {
     throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can create other admins.');
@@ -149,6 +180,62 @@ export const promoteToAdmin = asyncHandler(async (req, res) => {
   });
 
   res.json({ user });
+});
+
+export const demoteAdmin = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'super_admin') {
+    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can demote admins.');
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+
+  if (user.role === 'super_admin') {
+    throw new AppError(403, 'FORBIDDEN', 'Super Admins cannot be demoted.');
+  }
+
+  user.role = 'student';
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+  await user.save();
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'DEMOTE_ADMIN',
+    targetId: user._id,
+    targetType: 'User',
+    metadata: { email: user.email },
+    req
+  });
+
+  res.json({ user });
+});
+
+export const deleteUser = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'super_admin') {
+    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can delete users.');
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+
+  if (user.role === 'super_admin') {
+    throw new AppError(403, 'FORBIDDEN', 'Super Admins cannot be deleted.');
+  }
+
+  // Also cleanup their exam sessions
+  await ExamSession.deleteMany({ student: user._id });
+  await User.findByIdAndDelete(req.params.id);
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'DELETE_USER',
+    targetId: user._id,
+    targetType: 'User',
+    metadata: { email: user.email, role: user.role },
+    req
+  });
+
+  res.status(204).send();
 });
 
 export const resetUserPassword = asyncHandler(async (req, res) => {
