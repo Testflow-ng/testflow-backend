@@ -1,7 +1,6 @@
 import { connectDB, disconnectDB } from '../config/db.js';
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
-import { logger } from '../utils/logger.js';
 
 const run = async () => {
   await connectDB();
