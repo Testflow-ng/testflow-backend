@@ -108,10 +108,6 @@ export const createStudent = asyncHandler(async (req, res) => {
 });
 
 export const createAdmin = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'super_admin') {
-    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can create other admins.');
-  }
-
   const { fullName, email, password } = req.body;
 
   const existing = await User.findOne({ email });
@@ -139,19 +135,11 @@ export const createAdmin = asyncHandler(async (req, res) => {
 });
 
 export const listAdmins = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'super_admin') {
-    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can view the admin roster.');
-  }
-
   const admins = await User.find({ role: { $in: ['admin', 'super_admin'] } }).sort({ role: 1, fullName: 1 });
   res.json({ admins });
 });
 
 export const promoteToAdmin = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'super_admin') {
-    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can promote users.');
-  }
-
   const { email } = req.body;
   if (!email) {
     throw new AppError(400, 'INVALID_INPUT', 'Email is required.');
@@ -183,10 +171,6 @@ export const promoteToAdmin = asyncHandler(async (req, res) => {
 });
 
 export const demoteAdmin = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'super_admin') {
-    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can demote admins.');
-  }
-
   const user = await User.findById(req.params.id);
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
 
@@ -211,10 +195,6 @@ export const demoteAdmin = asyncHandler(async (req, res) => {
 });
 
 export const deleteUser = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'super_admin') {
-    throw new AppError(403, 'FORBIDDEN', 'Only Super Admins can delete users.');
-  }
-
   const user = await User.findById(req.params.id);
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
 

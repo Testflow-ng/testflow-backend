@@ -18,7 +18,7 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
     throw new AppError(401, 'UNAUTHENTICATED', 'Your session has expired. Please sign in again.');
   }
 
-  const user = await User.findById(payload.sub).select('+tokenVersion');
+  const user = await User.findById(payload.sub).select('+tokenVersion +role');
   if (!user || (user.tokenVersion ?? 0) !== payload.tv) {
     throw new AppError(401, 'UNAUTHENTICATED', 'Your session is no longer valid.');
   }

@@ -16,10 +16,10 @@ router.patch('/students/:id/toggle-status', admin.toggleUserStatus);
 router.get('/export-results', admin.exportResults);
 
 // Admin Management (Super Admin only)
-router.get('/roster', admin.listAdmins);
-router.post('/create', admin.createAdmin);
-router.post('/promote', admin.promoteToAdmin);
-router.patch('/demote/:id', admin.demoteAdmin);
-router.delete('/users/:id', admin.deleteUser);
+router.get('/roster', authorize('super_admin'), admin.listAdmins);
+router.post('/create', authorize('super_admin'), admin.createAdmin);
+router.post('/promote', authorize('super_admin'), admin.promoteToAdmin);
+router.patch('/demote/:id', authorize('super_admin'), admin.demoteAdmin);
+router.delete('/users/:id', authorize('super_admin'), admin.deleteUser);
 
 export default router;

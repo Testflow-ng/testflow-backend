@@ -4,10 +4,16 @@ import { AppError } from '../utils/AppError.js';
 export const authorize =
   (...roles) =>
   (req, _res, next) => {
-    // Super admins have access to all admin routes by default
-    const effectiveRoles = roles.includes('admin') ? [...roles, 'super_admin'] : roles;
+    if (!req.user) {
+      return next(new AppError(401, 'UNAUTHENTICATED', 'Authentication required.'));
+    }
 
-    if (!req.user || !effectiveRoles.includes(req.user.role)) {
+    const userRole = req.user.role;
+
+    // Super admins have access to everything that an admin can do.
+    const isAllowed = roles.includes(userRole) || (roles.includes('admin') && userRole === 'super_admin');
+
+    if (!isAllowed) {
       return next(new AppError(403, 'FORBIDDEN', 'You do not have access to this resource.'));
     }
     return next();
