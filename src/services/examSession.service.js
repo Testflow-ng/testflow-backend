@@ -245,6 +245,24 @@ export const saveAnswer = async (studentId, id, { questionIndex, selectedOption,
   };
 };
 
+export const recordStrike = async (studentId, id) => {
+  const session = await loadOwned(studentId, id);
+
+  if (session.status !== 'in_progress' || isExpired(session)) {
+    return { status: session.status };
+  }
+
+  session.strikes = (session.strikes ?? 0) + 1;
+
+  // Professional rule: auto-submit on 3 strikes
+  if (session.strikes >= 3) {
+    finalize(session);
+  }
+
+  await session.save();
+  return { strikes: session.strikes, status: session.status };
+};
+
 export const submitSession = async (studentId, id) => {
   const session = await loadOwned(studentId, id);
   if (session.status === 'in_progress') {

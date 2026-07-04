@@ -20,7 +20,19 @@ const matricNumber = z.preprocess(
 const token = z.string().min(1).max(256);
 
 export const registerSchema = z.object({
-  body: z.object({ fullName, email, matricNumber, password }).strict(),
+  body: z
+    .object({
+      fullName,
+      email,
+      matricNumber,
+      password,
+      confirmPassword: z.string(),
+    })
+    .strict()
+    .refine((data) => data.password === data.confirmPassword, {
+      message: 'Passwords do not match',
+      path: ['confirmPassword'],
+    }),
 });
 
 export const loginSchema = z.object({

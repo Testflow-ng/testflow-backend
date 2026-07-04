@@ -23,4 +23,7 @@ router.post('/resend-verification', authLimiter, validate(emailOnlySchema), auth
 router.post('/forgot-password', authLimiter, validate(emailOnlySchema), auth.forgotPassword);
 router.post('/reset-password', authLimiter, validate(resetPasswordSchema), auth.resetPassword);
 
+router.patch('/profile', authenticate, auth.updateProfile);
+router.post('/change-password', authenticate, auth.changePassword);
+
 export default router;

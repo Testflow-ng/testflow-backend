@@ -20,16 +20,13 @@ const issueVerification = async (user) => {
 };
 
 export const register = async ({ fullName, email, matricNumber, password }) => {
-  // Build the conflict query conditionally: a bare { matricNumber: undefined }
-  // serializes to { matricNumber: null } and would match every admin (who have
-  // no matric), causing all registrations to falsely fail once an admin exists.
+  // Build the conflict query conditionally
   const conflicts = [{ email }];
   if (matricNumber) {
     conflicts.push({ matricNumber });
   }
   const existing = await User.findOne({ $or: conflicts });
   if (existing) {
-    // Generic message to avoid revealing which identifier is taken.
     throw new AppError(409, 'REGISTRATION_FAILED', 'Could not register with those details.');
   }
   const user = await User.create({
@@ -38,9 +35,12 @@ export const register = async ({ fullName, email, matricNumber, password }) => {
     matricNumber,
     passwordHash: password, // pre-save hook hashes this
     role: 'student',
-    isEmailVerified: !config.isProduction, // Auto-verify in dev
+    isEmailVerified: true, // Auto-verify everyone (emails disabled)
   });
-  await issueVerification(user);
+
+  // Verification emails disabled per request
+  // await issueVerification(user);
+
   return user;
 };
 
@@ -112,6 +112,35 @@ export const resetPassword = async (rawToken, password) => {
   user.passwordResetTokenHash = undefined;
   user.passwordResetExpires = undefined;
   user.tokenVersion = (user.tokenVersion ?? 0) + 1; // sign out all existing sessions
+  await user.save();
+  return user;
+};
+
+export const updateProfile = async (userId, { fullName }) => {
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { fullName },
+    { new: true, runValidators: true }
+  );
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+  }
+  return user;
+};
+
+export const changePassword = async (userId, { currentPassword, newPassword }) => {
+  const user = await User.findById(userId).select('+passwordHash +tokenVersion');
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+  }
+
+  const passwordOk = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!passwordOk) {
+    throw new AppError(400, 'INVALID_PASSWORD', 'Incorrect current password.');
+  }
+
+  user.passwordHash = newPassword;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
   await user.save();
   return user;
 };

@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema(
     // Students only; sparse+unique so admins (no matric) don't collide on null.
     matricNumber: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
-    role: { type: String, enum: ['student', 'admin'], default: 'student' },
+    role: { type: String, enum: ['student', 'admin', 'super_admin'], default: 'student' },
 
     level: { type: String, enum: ['100', '200', '300', '400', '500'] },
     department: { type: String, trim: true },

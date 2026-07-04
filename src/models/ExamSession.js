@@ -38,6 +38,7 @@ const examSessionSchema = new mongoose.Schema(
     totalQuestions: { type: Number, required: true },
     correctCount: { type: Number },
     score: { type: Number },
+    strikes: { type: Number, default: 0 }, // For focus detection (anti-cheating)
   },
   { timestamps: true },
 );

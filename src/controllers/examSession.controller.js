@@ -16,6 +16,11 @@ export const saveAnswer = asyncHandler(async (req, res) => {
   res.json({ answer });
 });
 
+export const recordStrike = asyncHandler(async (req, res) => {
+  const result = await sessionService.recordStrike(req.user._id, req.params.id);
+  res.json({ result });
+});
+
 export const submitSession = asyncHandler(async (req, res) => {
   const result = await sessionService.submitSession(req.user._id, req.params.id);
   res.json({ result });

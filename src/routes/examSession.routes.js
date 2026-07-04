@@ -19,6 +19,7 @@ router.get('/stats', session.getStats); // must precede '/:id'
 router.post('/', requireVerified, validate(startSessionSchema), session.startSession);
 router.get('/:id', validate(sessionIdSchema), session.getSession);
 router.patch('/:id/answer', validate(answerSchema), session.saveAnswer);
+router.post('/:id/strike', validate(sessionIdSchema), session.recordStrike);
 router.post('/:id/submit', validate(sessionIdSchema), session.submitSession);
 router.get('/:id/result', validate(sessionIdSchema), session.getResult);
 
