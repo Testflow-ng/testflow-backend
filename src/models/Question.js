@@ -9,6 +9,7 @@ const questionSchema = new mongoose.Schema(
       index: true,
     },
     stem: { type: String, required: true, trim: true, maxlength: 2000 },
+    topic: { type: String, trim: true, maxlength: 100 }, // Added for targeted practice
     options: {
       type: [String],
       required: true,

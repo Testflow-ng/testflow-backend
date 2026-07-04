@@ -15,6 +15,11 @@ export const getSubject = asyncHandler(async (req, res) => {
   res.json({ subject });
 });
 
+export const getSubjectTopics = asyncHandler(async (req, res) => {
+  const topics = await subjectService.getSubjectTopics(req.params.code);
+  res.json({ topics });
+});
+
 export const deleteSubject = asyncHandler(async (req, res) => {
   await subjectService.deleteSubject(req.params.id);
   res.status(204).send();

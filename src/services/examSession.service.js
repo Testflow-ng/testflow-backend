@@ -100,11 +100,13 @@ const toSummary = (session) => ({
 
 export const startSession = async (
   studentId,
-  { subject: subjectRef, questionCount, durationMinutes: requestedDuration },
+  { subject: subjectRef, topic, questionCount, durationMinutes: requestedDuration },
 ) => {
   const subject = await resolveSubject(subjectRef);
 
   // Resume an existing live session for this subject, or retire it if expired.
+  // Note: if topic is specified, we usually want a new session, but for now
+  // let's stick to the one-active-per-subject rule.
   const existing = await ExamSession.findOne({
     student: studentId,
     subject: subject._id,
@@ -118,9 +120,12 @@ export const startSession = async (
     await existing.save();
   }
 
-  const available = await Question.countDocuments({ subject: subject._id, isActive: true });
+  const query = { subject: subject._id, isActive: true };
+  if (topic) query.topic = topic;
+
+  const available = await Question.countDocuments(query);
   if (available === 0) {
-    throw new AppError(409, 'NO_QUESTIONS', 'This subject has no questions yet.');
+    throw new AppError(409, 'NO_QUESTIONS', 'This selection has no questions yet.');
   }
 
   const count = Math.min(
@@ -130,7 +135,7 @@ export const startSession = async (
   );
 
   const sampled = await Question.aggregate([
-    { $match: { subject: subject._id, isActive: true } },
+    { $match: query },
     { $sample: { size: count } },
   ]);
 

@@ -16,6 +16,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', validate(listSubjectsSchema), subject.listSubjects);
+router.get('/:code/topics', subject.getSubjectTopics);
 router.post('/', authorize('admin'), validate(createSubjectSchema), subject.createSubject);
 
 router.get('/:code', validate(subjectCodeSchema), subject.getSubject);
