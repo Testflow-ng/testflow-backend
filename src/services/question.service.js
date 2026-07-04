@@ -5,7 +5,7 @@ import { AppError } from '../utils/AppError.js';
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 
 /** Resolve a subject reference (ObjectId or code like "PHY102") to its ObjectId. */
-const resolveSubjectId = async (subjectRef) => {
+const resolveSubjectId = async (subjectRef, autoCreate = false) => {
   if (OBJECT_ID.test(subjectRef)) {
     // An id-shaped input is an id lookup; a miss is a hard 404 (don't reinterpret
     // a 24-char hex string as a subject code).
@@ -15,8 +15,20 @@ const resolveSubjectId = async (subjectRef) => {
     }
     return byId._id;
   }
-  const byCode = await Subject.findOne({ code: String(subjectRef).toUpperCase() });
+  const code = String(subjectRef).toUpperCase();
+  const byCode = await Subject.findOne({ code });
+
   if (!byCode) {
+    if (autoCreate) {
+      // Auto-create a placeholder subject so the bulk import doesn't fail.
+      const newSubject = await Subject.create({
+        code,
+        title: `${code} Placeholder`,
+        description: 'Created automatically via Bulk Import. Please update the title and description.',
+        isActive: true
+      });
+      return newSubject._id;
+    }
     throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
   }
   return byCode._id;
@@ -35,7 +47,7 @@ export const bulkCreateQuestions = async (questionsData, adminId) => {
   for (const data of questionsData) {
     let subjectId = subjectMap.get(data.subject);
     if (!subjectId) {
-      subjectId = await resolveSubjectId(data.subject);
+      subjectId = await resolveSubjectId(data.subject, true); // Use autoCreate = true
       subjectMap.set(data.subject, subjectId);
     }
     questions.push({ ...data, subject: subjectId, createdBy: adminId });
