@@ -26,7 +26,7 @@ export const createSubject = asyncHandler(async (req, res) => {
 });
 
 export const updateSubject = asyncHandler(async (req, res) => {
-  const subject = await subjectService.updateSubject(req.params.code, req.body);
+  const subject = await subjectService.updateSubject(req.params.id, req.body);
 
   await auditService.recordAction({
     actorId: req.user._id,

@@ -40,8 +40,8 @@ export const createSubject = async (data) => {
   return Subject.create(data);
 };
 
-export const updateSubject = async (code, updates) => {
-  const subject = await Subject.findOneAndUpdate({ code: code.toUpperCase() }, updates, {
+export const updateSubject = async (id, updates) => {
+  const subject = await Subject.findByIdAndUpdate(id, updates, {
     new: true,
     runValidators: true,
   });
