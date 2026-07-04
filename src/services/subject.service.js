@@ -36,14 +36,6 @@ export const deleteSubject = async (id) => {
   }
 };
 
-export const getSubjectTopics = async (code) => {
-  const subject = await Subject.findOne({ code: code.toUpperCase() });
-  if (!subject) throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
-
-  const topics = await Question.distinct('topic', { subject: subject._id, isActive: true });
-  return topics.filter(Boolean).sort();
-};
-
 export const createSubject = async (data) => {
   return Subject.create(data);
 };

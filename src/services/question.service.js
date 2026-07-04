@@ -65,11 +65,10 @@ export const bulkCreateQuestions = async (questionsData, adminId) => {
   return Question.insertMany(questions);
 };
 
-export const listQuestions = async ({ subject, difficulty, search, topic, page = 1, limit = 20 }) => {
+export const listQuestions = async ({ subject, difficulty, search, page = 1, limit = 20 }) => {
   const filter = {};
   if (subject) filter.subject = await resolveSubjectId(subject);
   if (difficulty) filter.difficulty = difficulty;
-  if (topic) filter.topic = topic;
   if (search) {
     // Basic text search on the stem.
     filter.stem = { $regex: search, $options: 'i' };
