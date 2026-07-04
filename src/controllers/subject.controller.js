@@ -15,6 +15,16 @@ export const getSubject = asyncHandler(async (req, res) => {
   res.json({ subject });
 });
 
+export const deleteSubject = asyncHandler(async (req, res) => {
+  await subjectService.deleteSubject(req.params.id);
+  res.status(204).send();
+});
+
+export const createSubject = asyncHandler(async (req, res) => {
+  const subject = await subjectService.createSubject(req.body);
+  res.status(201).json({ subject });
+});
+
 export const updateSubject = asyncHandler(async (req, res) => {
   const subject = await subjectService.updateSubject(req.params.code, req.body);
 
@@ -28,4 +38,9 @@ export const updateSubject = asyncHandler(async (req, res) => {
   });
 
   res.json({ subject });
+});
+
+export const deleteSubject = asyncHandler(async (req, res) => {
+  await subjectService.deleteSubject(req.params.id);
+  res.status(204).send();
 });

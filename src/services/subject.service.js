@@ -29,6 +29,17 @@ export const getSubjectByCode = async (code, { includeInactive = false } = {}) =
   return subject;
 };
 
+export const deleteSubject = async (id) => {
+  const subject = await Subject.findByIdAndDelete(id);
+  if (!subject) {
+    throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
+  }
+};
+
+export const createSubject = async (data) => {
+  return Subject.create(data);
+};
+
 export const updateSubject = async (code, updates) => {
   const subject = await Subject.findOneAndUpdate({ code: code.toUpperCase() }, updates, {
     new: true,
@@ -38,4 +49,11 @@ export const updateSubject = async (code, updates) => {
     throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
   }
   return subject;
+};
+
+export const deleteSubject = async (id) => {
+  const subject = await Subject.findByIdAndDelete(id);
+  if (!subject) {
+    throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
+  }
 };

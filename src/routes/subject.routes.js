@@ -14,7 +14,9 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', validate(listSubjectsSchema), subject.listSubjects);
+router.post('/', authorize('admin'), subject.createSubject);
 router.get('/:code', validate(subjectCodeSchema), subject.getSubject);
 router.patch('/:code', authorize('admin'), validate(updateSubjectSchema), subject.updateSubject);
+router.delete('/:id', authorize('admin'), subject.deleteSubject);
 
 export default router;
