@@ -20,14 +20,23 @@ const resolveSubjectId = async (subjectRef, autoCreate = false) => {
 
   if (!byCode) {
     if (autoCreate) {
-      // Auto-create a placeholder subject so the bulk import doesn't fail.
-      const newSubject = await Subject.create({
-        code,
-        title: `${code} Placeholder`,
-        description: 'Created automatically via Bulk Import. Please update the title and description.',
-        isActive: true
-      });
-      return newSubject._id;
+      try {
+        // Auto-create a placeholder subject so the bulk import doesn't fail.
+        const newSubject = await Subject.create({
+          code,
+          title: `${code} Placeholder`,
+          description: 'Created automatically via Bulk Import. Please update the title and description.',
+          isActive: true
+        });
+        return newSubject._id;
+      } catch (err) {
+        // If we lost a race and it was created by a concurrent request, try fetching it one last time
+        if (err.code === 11000) {
+          const retry = await Subject.findOne({ code });
+          if (retry) return retry._id;
+        }
+        throw err;
+      }
     }
     throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
   }
