@@ -1,16 +1,16 @@
 import { z } from 'zod';
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid id');
-const options = z.array(z.string().trim().min(1).max(500)).min(2).max(6);
+const options = z.array(z.string().trim().min(1).max(2000)).min(2).max(6);
 const difficulty = z.enum(['easy', 'medium', 'hard']);
 
 const singleQuestionBody = z
   .object({
-    subject: z.string().trim().min(1).max(24),
-    stem: z.string().trim().min(1).max(2000),
+    subject: z.string().trim().min(1).max(50), // Increased for long codes if any
+    stem: z.string().trim().min(1).max(5000), // Increased for long LaTeX stems
     options,
     correctIndex: z.number().int().min(0),
-    explanation: z.string().trim().max(2000).optional(),
+    explanation: z.string().trim().max(5000).optional(), // Increased
     difficulty: difficulty.optional(),
   })
   .strict()
