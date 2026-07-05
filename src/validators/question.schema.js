@@ -37,7 +37,7 @@ export const updateQuestionSchema = z.object({
 });
 
 export const bulkCreateQuestionsSchema = z.object({
-  body: z.array(createQuestionSchema.shape.body).min(1).max(100),
+  body: z.array(createQuestionSchema.shape.body).min(1).max(500),
 });
 
 export const questionIdSchema = z.object({ params: z.object({ id: objectId }) });
