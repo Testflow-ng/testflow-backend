@@ -26,7 +26,9 @@ export const errorHandler = (err, req, res, _next) => {
   if (err.name === 'ValidationError') {
     statusCode = 422;
     code = 'VALIDATION_ERROR';
-    message = 'Invalid input.';
+    // Mongoose validation errors often have nested details in err.errors
+    message = err.message || 'Invalid input.';
+    err.details = err.errors;
   } else if (err.name === 'CastError') {
     statusCode = 400;
     code = 'INVALID_ID';
@@ -45,7 +47,7 @@ export const errorHandler = (err, req, res, _next) => {
     logger.error(err);
   }
 
-  const body = { error: { code, message } };
+  const body = { error: { code, message, details: err.details } };
   if (!config.isProduction && statusCode >= 500) {
     body.error.stack = err.stack;
   }
