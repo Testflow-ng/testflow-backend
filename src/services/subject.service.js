@@ -1,5 +1,6 @@
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
+import { ExamSession } from '../models/ExamSession.js';
 import { AppError } from '../utils/AppError.js';
 
 /** List subjects (active by default), each annotated with its active question count. */
@@ -30,6 +31,13 @@ export const getSubjectByCode = async (code, { includeInactive = false } = {}) =
 };
 
 export const deleteSubject = async (id) => {
+  // Cascading delete: Remove all questions and exam sessions associated with this subject.
+  // This is irreversible and essential for data integrity.
+  await Promise.all([
+    Question.deleteMany({ subject: id }),
+    ExamSession.deleteMany({ subject: id }),
+  ]);
+
   const subject = await Subject.findByIdAndDelete(id);
   if (!subject) {
     throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
