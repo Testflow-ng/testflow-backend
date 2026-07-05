@@ -18,7 +18,7 @@ const questionSchema = new mongoose.Schema(
           arr.length >= 2 &&
           arr.length <= 6 &&
           arr.every((option) => typeof option === 'string' && option.trim().length > 0) &&
-          new Set(arr.map((option) => option.trim().toLowerCase())).size === arr.length,
+          new Set(arr.map((option) => option.trim())).size === arr.length,
         message: 'A question must have 2 to 6 distinct, non-empty options.',
       },
     },
