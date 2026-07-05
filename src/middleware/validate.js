@@ -12,7 +12,7 @@ export const validate = (schema) => (req, res, next) => {
       error: {
         code: 'VALIDATION_ERROR',
         message: 'Invalid input.',
-        details: result.error.flatten(),
+        details: result.error, // Return the raw error for more detail
       },
     });
   }
