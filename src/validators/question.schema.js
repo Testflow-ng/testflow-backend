@@ -6,18 +6,14 @@ const difficulty = z.enum(['easy', 'medium', 'hard']);
 
 const singleQuestionBody = z
   .object({
-    subject: z.string().trim().min(1).max(50), // Increased for long codes if any
-    stem: z.string().trim().min(1).max(5000), // Increased for long LaTeX stems
+    subject: z.string().trim().min(1).max(50),
+    stem: z.string().trim().min(1).max(5000),
     options,
-    correctIndex: z.number().int().min(0),
-    explanation: z.string().trim().max(5000).optional(), // Increased
+    correctIndex: z.coerce.number().int().min(0), // Use coerce to handle string numbers
+    explanation: z.string().trim().max(5000).optional(),
     difficulty: difficulty.optional(),
-  })
-  .strict()
-  .refine((data) => data.correctIndex < data.options.length, {
-    message: 'correctIndex must reference a valid option',
-    path: ['correctIndex'],
-  });
+    isActive: z.boolean().optional(),
+  }); // Removed .strict() to be more forgiving
 
 export const createQuestionSchema = z.object({
   body: singleQuestionBody,
