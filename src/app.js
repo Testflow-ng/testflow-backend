@@ -6,7 +6,6 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { config } from './config/env.js';
 import routes from './routes/index.js';
-import { apiLimiter } from './middleware/rateLimit.js';
 import { notFound, errorHandler } from './middleware/error.js';
 
 /**
@@ -50,7 +49,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-app.use('/api', apiLimiter, routes);
+app.use('/api', routes);
 
 app.use(notFound);
 app.use(errorHandler);

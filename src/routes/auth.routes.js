@@ -12,8 +12,6 @@ import {
 
 const router = Router();
 
-// Rate limiting removed from auth routes per request. Re-add a lenient limiter
-// on register/login/forgot if brute-force protection is needed later.
 router.post('/register', validate(registerSchema), auth.register);
 router.post('/login', validate(loginSchema), auth.login);
 router.post('/logout', authenticate, auth.logout);

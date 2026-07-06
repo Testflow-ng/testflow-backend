@@ -23,10 +23,6 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
-
-  RATE_LIMIT_WINDOW_MS: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(15 * 60 * 1000)),
-  RATE_LIMIT_AUTH_MAX: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(10)),
-  RATE_LIMIT_API_MAX: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(300)),
 });
 
 const parsed = schema.safeParse(process.env);
