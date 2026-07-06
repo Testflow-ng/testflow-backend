@@ -11,8 +11,9 @@ export const REFRESH_PATH = '/api/auth/refresh';
 const baseOptions = () => ({
   httpOnly: true,
   secure: config.isProduction,
-  // Cross-site cookies (separate-origin PWA) require SameSite=None + Secure in prod.
-  sameSite: config.isProduction ? 'none' : 'lax',
+  // With Vercel proxying, cookies are now First-Party.
+  // SameSite=Lax is more compatible and secure than 'None'.
+  sameSite: config.isProduction ? 'lax' : 'lax',
   domain: config.COOKIE_DOMAIN || undefined,
 });
 
