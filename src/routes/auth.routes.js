@@ -2,7 +2,6 @@ import { Router } from 'express';
 import * as auth from '../controllers/auth.controller.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { authLimiter } from '../middleware/rateLimit.js';
 import {
   registerSchema,
   loginSchema,
@@ -13,15 +12,17 @@ import {
 
 const router = Router();
 
-router.post('/register', authLimiter, validate(registerSchema), auth.register);
-router.post('/login', authLimiter, validate(loginSchema), auth.login);
+// Rate limiting removed from auth routes per request. Re-add a lenient limiter
+// on register/login/forgot if brute-force protection is needed later.
+router.post('/register', validate(registerSchema), auth.register);
+router.post('/login', validate(loginSchema), auth.login);
 router.post('/logout', authenticate, auth.logout);
-router.post('/refresh', authLimiter, auth.refresh);
+router.post('/refresh', auth.refresh);
 router.get('/me', authenticate, auth.me);
-router.post('/verify-email', authLimiter, validate(verifyEmailSchema), auth.verifyEmail);
-router.post('/resend-verification', authLimiter, validate(emailOnlySchema), auth.resendVerification);
-router.post('/forgot-password', authLimiter, validate(emailOnlySchema), auth.forgotPassword);
-router.post('/reset-password', authLimiter, validate(resetPasswordSchema), auth.resetPassword);
+router.post('/verify-email', validate(verifyEmailSchema), auth.verifyEmail);
+router.post('/resend-verification', validate(emailOnlySchema), auth.resendVerification);
+router.post('/forgot-password', validate(emailOnlySchema), auth.forgotPassword);
+router.post('/reset-password', validate(resetPasswordSchema), auth.resetPassword);
 
 router.patch('/profile', authenticate, auth.updateProfile);
 router.post('/change-password', authenticate, auth.changePassword);
