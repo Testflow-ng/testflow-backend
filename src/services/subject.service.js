@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
 import { ExamSession } from '../models/ExamSession.js';
@@ -57,4 +58,66 @@ export const updateSubject = async (id, updates) => {
     throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
   }
   return subject;
+};
+
+export const getSubjectLeaderboard = async (subjectId) => {
+  const leaderboard = await ExamSession.aggregate([
+    {
+      $match: {
+        subject: new mongoose.Types.ObjectId(subjectId),
+        status: 'submitted'
+      }
+    },
+    {
+      $sort: { score: -1, totalQuestions: -1, durationMinutes: 1, submittedAt: 1 }
+    },
+    {
+      $group: {
+        _id: '$student',
+        bestScore: { $first: '$score' },
+        totalQuestions: { $first: '$totalQuestions' },
+        timeTaken: { $first: '$durationMinutes' },
+        date: { $first: '$submittedAt' }
+      }
+    },
+    { $sort: { bestScore: -1, totalQuestions: -1, timeTaken: 1 } },
+    { $limit: 10 },
+    {
+      $lookup: {
+        from: 'users',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'studentInfo'
+      }
+    },
+    { $unwind: '$studentInfo' },
+    {
+      $project: {
+        _id: 0,
+        username: '$studentInfo.username',
+        fullName: '$studentInfo.fullName',
+        score: '$bestScore',
+        totalQuestions: 1,
+        timeTaken: 1,
+        date: 1
+      }
+    }
+  ]);
+
+  return leaderboard;
+};
+
+export const togglePinSubject = async (userId, subjectId) => {
+  const user = await mongoose.model('User').findById(userId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+
+  const index = user.pinnedSubjects.indexOf(subjectId);
+  if (index > -1) {
+    user.pinnedSubjects.splice(index, 1);
+  } else {
+    user.pinnedSubjects.push(subjectId);
+  }
+
+  await user.save();
+  return user;
 };

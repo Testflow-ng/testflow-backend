@@ -17,6 +17,7 @@ router.post('/login', validate(loginSchema), auth.login);
 router.post('/logout', authenticate, auth.logout);
 router.post('/refresh', auth.refresh);
 router.get('/me', authenticate, auth.me);
+router.patch('/username', authenticate, auth.setUsername);
 router.post('/verify-email', validate(verifyEmailSchema), auth.verifyEmail);
 router.post('/resend-verification', validate(emailOnlySchema), auth.resendVerification);
 router.post('/forgot-password', validate(emailOnlySchema), auth.forgotPassword);

@@ -1,6 +1,7 @@
 import { ExamSession } from '../models/ExamSession.js';
 import { Question } from '../models/Question.js';
 import { Subject } from '../models/Subject.js';
+import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { shuffle } from '../utils/shuffle.js';
 import { EXAM_CONFIG } from '../config/exam.js';
@@ -272,6 +273,35 @@ export const submitSession = async (studentId, id) => {
   if (session.status === 'in_progress') {
     finalize(session, isExpired(session) ? session.expiresAt : undefined);
     await session.save();
+
+    // Update Streak logic
+    try {
+      const user = await User.findById(studentId);
+      if (user) {
+        const now = new Date();
+        const lastActive = user.lastActiveAt;
+
+        if (!lastActive) {
+          user.streakCount = 1;
+        } else {
+          const diffDays = Math.floor((now - lastActive) / (1000 * 60 * 60 * 24));
+          if (diffDays === 0) {
+            // Already active today, streak stays the same
+          } else if (diffDays === 1) {
+            // Consecutive day, increment streak
+            user.streakCount += 1;
+          } else {
+            // Broke the streak, reset to 1
+            user.streakCount = 1;
+          }
+        }
+        user.lastActiveAt = now;
+        await user.save();
+      }
+    } catch (err) {
+      console.error('Streak update failed:', err);
+      // Don't crash submission if streak update fails
+    }
   }
   return toResultView(session);
 };

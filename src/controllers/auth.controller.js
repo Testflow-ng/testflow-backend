@@ -43,7 +43,36 @@ export const refresh = asyncHandler(async (req, res) => {
 });
 
 export const me = asyncHandler(async (req, res) => {
-  res.status(200).json({ user: req.user });
+  // Flag if username is missing so the frontend can prompt the user
+  const user = req.user.toJSON();
+  const needsUsername = !user.username && user.role === 'student';
+
+  res.status(200).json({
+    user,
+    meta: { needsUsername }
+  });
+});
+
+export const setUsername = asyncHandler(async (req, res) => {
+  const { username } = req.body;
+
+  if (!username || username.length < 3) {
+    throw new AppError(400, 'INVALID_USERNAME', 'Username must be at least 3 characters.');
+  }
+
+  // Check if username is taken
+  const existing = await User.findOne({ username: username.toLowerCase() });
+  if (existing) {
+    throw new AppError(409, 'USERNAME_TAKEN', 'This username is already taken.');
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { username: username.toLowerCase() },
+    { new: true, runValidators: true }
+  );
+
+  res.status(200).json({ user });
 });
 
 export const verifyEmail = asyncHandler(async (req, res) => {

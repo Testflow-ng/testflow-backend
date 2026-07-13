@@ -6,6 +6,7 @@ const BCRYPT_COST = 12;
 const userSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true, trim: true, maxlength: 120 },
+    username: { type: String, unique: true, sparse: true, trim: true, lowercase: true, minlength: 3, maxlength: 20 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     // Students only; sparse+unique so admins (no matric) don't collide on null.
     matricNumber: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
@@ -14,6 +15,10 @@ const userSchema = new mongoose.Schema(
 
     level: { type: String, enum: ['100', '200', '300', '400', '500'] },
     department: { type: String, trim: true },
+
+    streakCount: { type: Number, default: 0 },
+    lastActiveAt: { type: Date },
+    pinnedSubjects: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subject' }],
 
     isEmailVerified: { type: Boolean, default: false },
 
