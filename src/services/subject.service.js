@@ -91,6 +91,8 @@ export const getSubjectLeaderboard = async (subjectId) => {
       }
     },
     { $unwind: '$studentInfo' },
+    // Filter out users who opted out of the leaderboard
+    { $match: { 'studentInfo.showOnLeaderboard': { $ne: false } } },
     {
       $project: {
         _id: 0,

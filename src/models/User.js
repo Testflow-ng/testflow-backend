@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema(
     streakCount: { type: Number, default: 0 },
     lastActiveAt: { type: Date },
     pinnedSubjects: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subject' }],
+    showOnLeaderboard: { type: Boolean, default: true },
 
     isEmailVerified: { type: Boolean, default: false },
 
