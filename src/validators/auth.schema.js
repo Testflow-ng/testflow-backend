@@ -11,6 +11,14 @@ const password = z
   .regex(/\d/, 'Password must include a number');
 
 const fullName = z.string().trim().min(2).max(120);
+const username = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'Username must be at least 3 characters')
+  .max(20, 'Username must be at most 20 characters')
+  .regex(/^[a-z0-9_]+$/, 'Username can only contain letters, numbers, and underscores');
+
 // Optional: blank/whitespace is normalized to "not provided" so the sparse
 // unique index isn't tripped by multiple empty strings.
 const matricNumber = z.preprocess(
@@ -23,6 +31,7 @@ export const registerSchema = z.object({
   body: z
     .object({
       fullName,
+      username,
       email,
       matricNumber,
       password,

@@ -18,18 +18,21 @@ const issueVerification = async (user) => {
   await sendVerificationEmail(user, token);
 };
 
-export const register = async ({ fullName, email, matricNumber, password }) => {
+export const register = async ({ fullName, username, email, matricNumber, password }) => {
   // Build the conflict query conditionally
-  const conflicts = [{ email }];
+  const conflicts = [{ email }, { username }];
   if (matricNumber) {
     conflicts.push({ matricNumber });
   }
   const existing = await User.findOne({ $or: conflicts });
   if (existing) {
-    throw new AppError(409, 'REGISTRATION_FAILED', 'Could not register with those details.');
+    if (existing.email === email) throw new AppError(409, 'REGISTRATION_FAILED', 'Email already exists.');
+    if (existing.username === username) throw new AppError(409, 'REGISTRATION_FAILED', 'Username already taken.');
+    throw new AppError(409, 'REGISTRATION_FAILED', 'Registration failed.');
   }
   const user = await User.create({
     fullName,
+    username,
     email,
     matricNumber,
     passwordHash: password, // pre-save hook hashes this
