@@ -1,4 +1,5 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { User } from '../models/User.js';
 import * as authService from '../services/auth.service.js';
 import { setAuthCookies, clearAuthCookies, verifyRefreshToken } from '../services/token.service.js';
 import { REFRESH_COOKIE } from '../config/cookies.js';
