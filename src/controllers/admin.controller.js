@@ -15,7 +15,10 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     totalSessions,
     completedSessions,
     recentUsers,
-    activeSessionsCount
+    activeSessionsCount,
+    avgScoreResult,
+    topSubjectResult,
+    levelStats
   ] = await Promise.all([
     User.countDocuments({ role: 'student' }),
     User.countDocuments({ role: 'admin' }),
@@ -28,7 +31,19 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     ExamSession.countDocuments({
       status: 'in_progress',
       createdAt: { $gt: new Date(Date.now() - 60 * 60 * 1000) }
-    })
+    }),
+    ExamSession.aggregate([
+      { $match: { status: 'submitted' } },
+      { $group: { _id: null, avg: { $avg: '$score' } } }
+    ]),
+    ExamSession.aggregate([
+      { $group: { _id: '$subjectCode', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 1 }
+    ]),
+    Subject.aggregate([
+      { $group: { _id: '$level', count: { $sum: 1 } } }
+    ])
   ]);
 
   res.json({
@@ -40,12 +55,15 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
       },
       content: {
         subjects: totalSubjects,
-        questions: totalQuestions
+        questions: totalQuestions,
+        levels: levelStats.reduce((acc, curr) => ({ ...acc, [curr._id || 'Unleveled']: curr.count }), {})
       },
       usage: {
         totalSessions,
         completedSessions,
-        activeNow: activeSessionsCount
+        activeNow: activeSessionsCount,
+        averageScore: avgScoreResult[0]?.avg ? Math.round(avgScoreResult[0].avg) : 0,
+        topSubject: topSubjectResult[0]?._id || 'N/A'
       }
     },
     recentUsers

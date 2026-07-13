@@ -44,8 +44,9 @@ export const refresh = asyncHandler(async (req, res) => {
 
 export const me = asyncHandler(async (req, res) => {
   // Flag if username is missing so the frontend can prompt the user
+  // This now applies to both students and admins as requested
   const user = req.user.toJSON();
-  const needsUsername = !user.username && user.role === 'student';
+  const needsUsername = !user.username;
 
   res.status(200).json({
     user,

@@ -51,15 +51,3 @@ export const updateSubject = asyncHandler(async (req, res) => {
 
   res.json({ subject });
 });
-
-export const getLeaderboard = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const leaderboard = await subjectService.getSubjectLeaderboard(id);
-  res.json({ leaderboard });
-});
-
-export const togglePin = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const user = await subjectService.togglePinSubject(req.user._id, id);
-  res.json({ pinnedSubjects: user.pinnedSubjects });
-});
