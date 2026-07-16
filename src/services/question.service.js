@@ -118,25 +118,47 @@ export const deleteQuestion = async (id) => {
 };
 
 export const listSubjectTopics = async (subjectId) => {
-  const topics = await Question.aggregate([
+  const aggregated = await Question.aggregate([
     {
       $match: {
         subject: new mongoose.Types.ObjectId(subjectId),
-        isActive: true,
-        topic: { $ne: null, $ne: '' }
+        isActive: true
       }
     },
     {
       $group: {
-        _id: '$topicId',
-        name: { $first: '$topic' }
+        _id: {
+          topicId: '$topicId',
+          topic: '$topic',
+          subtopic: '$subtopic'
+        },
+        count: { $sum: 1 }
       }
     },
-    { $sort: { _id: 1 } }
+    {
+      $group: {
+        _id: {
+          topicId: '$_id.topicId',
+          topic: '$_id.topic'
+        },
+        subtopics: {
+          $push: {
+            name: '$_id.subtopic',
+            count: '$count'
+          }
+        },
+        totalCount: { $sum: '$count' }
+      }
+    },
+    { $sort: { '_id.topicId': 1 } }
   ]);
 
-  return topics.map(t => ({
-    id: t._id || 'T-UNKNOWN',
-    name: t.name || 'Uncategorized'
+  return aggregated.map(t => ({
+    id: t._id.topicId || 'T-OTHERS',
+    name: t._id.topic || 'General Material',
+    totalQuestions: t.totalCount,
+    subtopics: t.subtopics
+      .filter(st => st.name)
+      .sort((a, b) => a.name.localeCompare(b.name))
   }));
 };

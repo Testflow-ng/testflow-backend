@@ -9,6 +9,7 @@ export const startSessionSchema = z.object({
       questionCount: z.coerce.number().int().min(1).max(50).optional(),
       durationMinutes: z.coerce.number().int().min(1).max(180).optional(),
       topicId: z.string().trim().max(20).optional(),
+      subtopic: z.string().trim().max(160).optional(),
     })
     .strict(),
 });
