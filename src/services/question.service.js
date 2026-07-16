@@ -126,19 +126,29 @@ export const listSubjectTopics = async (subjectId) => {
       }
     },
     {
-      // Group by topic name to avoid duplicates if IDs are inconsistent
       $group: {
-        _id: '$topic',
-        topicId: { $first: '$topicId' },
+        _id: {
+          $toLower: {
+            $trim: {
+              input: { $ifNull: ["$topic", "General Material"] }
+            }
+          }
+        },
+        displayName: {
+          $first: {
+            $trim: {
+              input: { $ifNull: ["$topic", "General Material"] }
+            }
+          }
+        },
         count: { $sum: 1 }
       }
     },
-    { $sort: { topicId: 1, _id: 1 } }
+    { $sort: { displayName: 1 } }
   ]);
 
   return aggregated.map(t => ({
-    id: t.topicId || 'T-OTHERS',
-    name: t._id || 'General Material',
+    name: t.displayName || 'General Material',
     totalQuestions: t.count
   }));
 };
