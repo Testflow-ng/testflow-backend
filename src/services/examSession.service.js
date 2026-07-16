@@ -101,11 +101,12 @@ const toSummary = (session) => ({
 
 export const startSession = async (
   studentId,
-  { subject: subjectRef, questionCount, durationMinutes: requestedDuration },
+  { subject: subjectRef, questionCount, durationMinutes: requestedDuration, topic },
 ) => {
   const subject = await resolveSubject(subjectRef);
 
   // Resume an existing live session for this subject, or retire it if expired.
+  // Note: if a student starts a session with a specific topic, resuming will give them that.
   const existing = await ExamSession.findOne({
     student: studentId,
     subject: subject._id,
@@ -120,10 +121,13 @@ export const startSession = async (
   }
 
   const query = { subject: subject._id, isActive: true };
+  if (topic) {
+    query.topic = topic;
+  }
 
   const available = await Question.countDocuments(query);
   if (available === 0) {
-    throw new AppError(409, 'NO_QUESTIONS', 'This subject has no questions yet.');
+    throw new AppError(409, 'NO_QUESTIONS', `This subject ${topic ? `(topic: ${topic})` : ''} has no questions yet.`);
   }
 
   const count = Math.min(

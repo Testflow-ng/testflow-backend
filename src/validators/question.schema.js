@@ -7,6 +7,7 @@ const difficulty = z.enum(['easy', 'medium', 'hard']);
 const singleQuestionBody = z
   .object({
     subject: z.string().trim().min(1).max(50),
+    topic: z.string().trim().max(100).optional(),
     stem: z.string().trim().min(1).max(5000),
     options,
     correctIndex: z.coerce.number().int().min(0), // Use coerce to handle string numbers

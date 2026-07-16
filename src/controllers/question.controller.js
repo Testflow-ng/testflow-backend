@@ -48,3 +48,8 @@ export const deleteQuestion = asyncHandler(async (req, res) => {
 
   res.status(204).send();
 });
+
+export const listSubjectTopics = asyncHandler(async (req, res) => {
+  const topics = await questionService.listSubjectTopics(req.params.subjectId);
+  res.json({ topics });
+});

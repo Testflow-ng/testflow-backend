@@ -24,6 +24,7 @@ const questionSchema = new mongoose.Schema(
     },
     correctIndex: { type: Number, required: true, min: 0 },
     explanation: { type: String, trim: true, maxlength: 2000 },
+    topic: { type: String, trim: true, maxlength: 100 },
     difficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'medium' },
     isActive: { type: Boolean, default: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

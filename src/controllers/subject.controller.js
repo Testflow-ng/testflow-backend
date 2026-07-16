@@ -1,5 +1,6 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import * as subjectService from '../services/subject.service.js';
+import * as questionService from '../services/question.service.js';
 import * as auditService from '../services/audit.service.js';
 
 export const listSubjects = asyncHandler(async (req, res) => {
@@ -13,6 +14,11 @@ export const getSubject = asyncHandler(async (req, res) => {
   const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
   const subject = await subjectService.getSubjectByCode(req.params.code, { includeInactive: isAdmin });
   res.json({ subject });
+});
+
+export const listTopics = asyncHandler(async (req, res) => {
+  const topics = await questionService.listSubjectTopics(req.params.id);
+  res.json({ topics });
 });
 
 export const getLeaderboard = asyncHandler(async (req, res) => {

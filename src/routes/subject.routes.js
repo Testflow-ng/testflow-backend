@@ -19,6 +19,7 @@ router.get('/', validate(listSubjectsSchema), subject.listSubjects);
 router.post('/', authorize('admin'), validate(createSubjectSchema), subject.createSubject);
 
 router.get('/:code', validate(subjectCodeSchema), subject.getSubject);
+router.get('/:id/topics', validate(subjectIdSchema), subject.listTopics);
 router.get('/:id/leaderboard', validate(subjectIdSchema), subject.getLeaderboard);
 router.post('/:id/pin', validate(subjectIdSchema), subject.togglePin);
 router.patch('/:id', authorize('admin'), validate(updateSubjectSchema), subject.updateSubject);

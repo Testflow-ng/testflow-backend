@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Question } from '../models/Question.js';
 import { Subject } from '../models/Subject.js';
 import { AppError } from '../utils/AppError.js';
@@ -21,11 +22,16 @@ const resolveSubjectId = async (subjectRef, autoCreate = false) => {
   if (!byCode) {
     if (autoCreate) {
       try {
+        // Try to infer level from the first digit of the subject code (e.g., MTH101 -> 100)
+        const match = code.match(/\d/);
+        const level = match ? `${match[0]}00` : undefined;
+
         // Auto-create a placeholder subject so the bulk import doesn't fail.
         const newSubject = await Subject.create({
           code,
           title: `${code} Placeholder`,
           description: 'Created automatically via Bulk Import. Please update the title and description.',
+          level,
           isActive: true
         });
         return newSubject._id;
@@ -109,4 +115,13 @@ export const deleteQuestion = async (id) => {
   if (!question) {
     throw new AppError(404, 'QUESTION_NOT_FOUND', 'Question not found.');
   }
+};
+
+export const listSubjectTopics = async (subjectId) => {
+  const topics = await Question.distinct('topic', {
+    subject: new mongoose.Types.ObjectId(subjectId),
+    isActive: true,
+    topic: { $ne: null, $ne: '' }
+  });
+  return topics.sort();
 };
