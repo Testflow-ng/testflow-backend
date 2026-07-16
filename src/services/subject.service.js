@@ -32,12 +32,10 @@ export const getSubjectByCode = async (code, { includeInactive = false } = {}) =
 };
 
 export const deleteSubject = async (id) => {
-  // Cascading delete: Remove all questions and exam sessions associated with this subject.
-  // This is irreversible and essential for data integrity.
-  await Promise.all([
-    Question.deleteMany({ subject: id }),
-    ExamSession.deleteMany({ subject: id }),
-  ]);
+  // Cascading delete for questions only.
+  // We preserve ExamSessions (student history) even if the subject is removed,
+  // as the sessions store the subjectCode for display purposes.
+  await Question.deleteMany({ subject: id });
 
   const subject = await Subject.findByIdAndDelete(id);
   if (!subject) {
