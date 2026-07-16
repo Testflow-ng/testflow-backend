@@ -46,11 +46,18 @@ export const refresh = asyncHandler(async (req, res) => {
 export const me = asyncHandler(async (req, res) => {
   // Flag if username is missing so the frontend can prompt the user
   // This now applies to both students and admins as requested
-  const user = req.user.toJSON();
+  const user = req.user;
   const needsUsername = !user.username;
 
+  // Update lastActiveAt periodically (at most once every 5 minutes to avoid DB spam)
+  const now = new Date();
+  if (!user.lastActiveAt || now - user.lastActiveAt > 5 * 60 * 1000) {
+    user.lastActiveAt = now;
+    await user.save();
+  }
+
   res.status(200).json({
-    user,
+    user: user.toJSON(),
     meta: { needsUsername }
   });
 });

@@ -7,6 +7,11 @@ import * as auditService from '../services/audit.service.js';
 import { AppError } from '../utils/AppError.js';
 
 export const getDashboardStats = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+  const monthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+
   const [
     totalStudents,
     totalAdmins,
@@ -18,7 +23,10 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     activeSessionsCount,
     avgScoreResult,
     topSubjectResult,
-    levelStats
+    levelStats,
+    dau,
+    wau,
+    mau
   ] = await Promise.all([
     User.countDocuments({ role: 'student' }),
     User.countDocuments({ role: 'admin' }),
@@ -43,7 +51,10 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     ]),
     Subject.aggregate([
       { $group: { _id: '$level', count: { $sum: 1 } } }
-    ])
+    ]),
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: dayAgo } }),
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: weekAgo } }),
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: monthAgo } })
   ]);
 
   res.json({
@@ -51,7 +62,12 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
       users: {
         total: totalStudents + totalAdmins,
         students: totalStudents,
-        admins: totalAdmins
+        admins: totalAdmins,
+        activity: {
+          daily: dau,
+          weekly: wau,
+          monthly: mau
+        }
       },
       content: {
         subjects: totalSubjects,

@@ -34,6 +34,7 @@ const examSessionSchema = new mongoose.Schema(
     startedAt: { type: Date, default: Date.now },
     expiresAt: { type: Date, required: true },
     submittedAt: { type: Date },
+    timeTakenSeconds: { type: Number },
     questions: { type: [sessionQuestionSchema], required: true },
     totalQuestions: { type: Number, required: true },
     correctCount: { type: Number },

@@ -69,18 +69,18 @@ export const getSubjectLeaderboard = async (subjectId) => {
       }
     },
     {
-      $sort: { score: -1, totalQuestions: -1, durationMinutes: 1, submittedAt: 1 }
+      $sort: { score: -1, totalQuestions: -1, timeTakenSeconds: 1, submittedAt: 1 }
     },
     {
       $group: {
         _id: '$student',
         bestScore: { $first: '$score' },
         totalQuestions: { $first: '$totalQuestions' },
-        timeTaken: { $first: '$durationMinutes' },
+        timeTakenSeconds: { $first: '$timeTakenSeconds' },
         date: { $first: '$submittedAt' }
       }
     },
-    { $sort: { bestScore: -1, totalQuestions: -1, timeTaken: 1 } },
+    { $sort: { bestScore: -1, totalQuestions: -1, timeTakenSeconds: 1 } },
     { $limit: 10 },
     {
       $lookup: {
@@ -100,7 +100,7 @@ export const getSubjectLeaderboard = async (subjectId) => {
         fullName: '$studentInfo.fullName',
         score: '$bestScore',
         totalQuestions: 1,
-        timeTaken: 1,
+        timeTakenSeconds: 1,
         date: 1
       }
     }

@@ -42,6 +42,11 @@ const finalize = (session, submittedAt = new Date()) => {
     : 0;
   session.status = 'submitted';
   session.submittedAt = submittedAt;
+
+  // Calculate actual time taken in seconds
+  const startedAt = new Date(session.startedAt);
+  const timeTakenMs = submittedAt.getTime() - startedAt.getTime();
+  session.timeTakenSeconds = Math.max(1, Math.floor(timeTakenMs / 1000));
 };
 
 const remainingSeconds = (session) =>
@@ -288,16 +293,23 @@ export const submitSession = async (studentId, id) => {
         if (!lastActive) {
           user.streakCount = 1;
         } else {
-          const diffDays = Math.floor((now - lastActive) / (1000 * 60 * 60 * 24));
-          if (diffDays === 0) {
-            // Already active today, streak stays the same
-          } else if (diffDays === 1) {
-            // Consecutive day, increment streak
+          // Normalize dates to UTC midnight for comparison
+          const d1 = new Date(lastActive);
+          d1.setUTCHours(0, 0, 0, 0);
+          const d2 = new Date(now);
+          d2.setUTCHours(0, 0, 0, 0);
+
+          const diffMs = d2 - d1;
+          const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+          if (diffDays === 1) {
+            // Exactly one day later - consecutive streak!
             user.streakCount += 1;
-          } else {
-            // Broke the streak, reset to 1
+          } else if (diffDays > 1) {
+            // More than one day - streak broken
             user.streakCount = 1;
           }
+          // If diffDays is 0, they already practiced today, keep current streakCount
         }
         user.lastActiveAt = now;
         await user.save();
