@@ -106,7 +106,7 @@ const toSummary = (session) => ({
 
 export const startSession = async (
   studentId,
-  { subject: subjectRef, questionCount, durationMinutes: requestedDuration, topicId, subtopic },
+  { subject: subjectRef, questionCount, durationMinutes: requestedDuration, topicId, topic },
 ) => {
   const subject = await resolveSubject(subjectRef);
 
@@ -129,8 +129,8 @@ export const startSession = async (
   if (topicId) {
     query.topicId = topicId;
   }
-  if (subtopic) {
-    query.subtopic = subtopic;
+  if (topic) {
+    query.topic = topic;
   }
 
   const available = await Question.countDocuments(query);

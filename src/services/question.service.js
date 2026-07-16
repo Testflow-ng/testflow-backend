@@ -126,39 +126,19 @@ export const listSubjectTopics = async (subjectId) => {
       }
     },
     {
+      // Group by topic name to avoid duplicates if IDs are inconsistent
       $group: {
-        _id: {
-          topicId: '$topicId',
-          topic: '$topic',
-          subtopic: '$subtopic'
-        },
+        _id: '$topic',
+        topicId: { $first: '$topicId' },
         count: { $sum: 1 }
       }
     },
-    {
-      $group: {
-        _id: {
-          topicId: '$_id.topicId',
-          topic: '$_id.topic'
-        },
-        subtopics: {
-          $push: {
-            name: '$_id.subtopic',
-            count: '$count'
-          }
-        },
-        totalCount: { $sum: '$count' }
-      }
-    },
-    { $sort: { '_id.topicId': 1 } }
+    { $sort: { topicId: 1, _id: 1 } }
   ]);
 
   return aggregated.map(t => ({
-    id: t._id.topicId || 'T-OTHERS',
-    name: t._id.topic || 'General Material',
-    totalQuestions: t.totalCount,
-    subtopics: t.subtopics
-      .filter(st => st.name)
-      .sort((a, b) => a.name.localeCompare(b.name))
+    id: t.topicId || 'T-OTHERS',
+    name: t._id || 'General Material',
+    totalQuestions: t.count
   }));
 };
