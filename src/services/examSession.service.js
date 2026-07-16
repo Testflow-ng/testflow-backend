@@ -101,7 +101,7 @@ const toSummary = (session) => ({
 
 export const startSession = async (
   studentId,
-  { subject: subjectRef, questionCount, durationMinutes: requestedDuration, topic },
+  { subject: subjectRef, questionCount, durationMinutes: requestedDuration, topicId },
 ) => {
   const subject = await resolveSubject(subjectRef);
 
@@ -121,13 +121,13 @@ export const startSession = async (
   }
 
   const query = { subject: subject._id, isActive: true };
-  if (topic) {
-    query.topic = topic;
+  if (topicId) {
+    query.topicId = topicId;
   }
 
   const available = await Question.countDocuments(query);
   if (available === 0) {
-    throw new AppError(409, 'NO_QUESTIONS', `This subject ${topic ? `(topic: ${topic})` : ''} has no questions yet.`);
+    throw new AppError(409, 'NO_QUESTIONS', `This subject ${topicId ? `(topicId: ${topicId})` : ''} has no questions yet.`);
   }
 
   const count = Math.min(

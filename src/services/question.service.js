@@ -118,10 +118,25 @@ export const deleteQuestion = async (id) => {
 };
 
 export const listSubjectTopics = async (subjectId) => {
-  const topics = await Question.distinct('topic', {
-    subject: new mongoose.Types.ObjectId(subjectId),
-    isActive: true,
-    topic: { $ne: null, $ne: '' }
-  });
-  return topics.sort();
+  const topics = await Question.aggregate([
+    {
+      $match: {
+        subject: new mongoose.Types.ObjectId(subjectId),
+        isActive: true,
+        topic: { $ne: null, $ne: '' }
+      }
+    },
+    {
+      $group: {
+        _id: '$topicId',
+        name: { $first: '$topic' }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  return topics.map(t => ({
+    id: t._id || 'T-UNKNOWN',
+    name: t.name || 'Uncategorized'
+  }));
 };
