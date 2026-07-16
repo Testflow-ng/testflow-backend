@@ -9,6 +9,7 @@ const singleQuestionBody = z
     subject: z.string().trim().min(1).max(50),
     topicId: z.string().trim().max(20).optional(),
     topic: z.string().trim().max(160).optional(),
+    subtopic: z.string().trim().max(160).optional(),
     stem: z.string().trim().min(1).max(5000),
     options,
     correctIndex: z.coerce.number().int().min(0), // Use coerce to handle string numbers
