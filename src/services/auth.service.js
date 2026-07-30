@@ -26,19 +26,50 @@ export const register = async ({ fullName, username, email, matricNumber, passwo
   }
   const existing = await User.findOne({ $or: conflicts });
   if (existing) {
-    if (existing.email === email) throw new AppError(409, 'REGISTRATION_FAILED', 'Email already exists.');
-    if (existing.username === username) throw new AppError(409, 'REGISTRATION_FAILED', 'Username already taken.');
-    throw new AppError(409, 'REGISTRATION_FAILED', 'Registration failed.');
+    if (existing.email === email) {
+      throw new AppError(409, 'EMAIL_TAKEN', 'An account with this email already exists.');
+    }
+    if (existing.username === username) {
+      throw new AppError(409, 'USERNAME_TAKEN', 'That username is already taken.');
+    }
+    if (matricNumber && existing.matricNumber === matricNumber) {
+      throw new AppError(
+        409,
+        'MATRIC_TAKEN',
+        'That matric number is already registered. Leave it blank if it is not yours.',
+      );
+    }
+    throw new AppError(409, 'REGISTRATION_FAILED', 'Could not create your account. Please try again.');
   }
-  const user = await User.create({
-    fullName,
-    username,
-    email,
-    matricNumber,
-    passwordHash: password, // pre-save hook hashes this
-    role: 'student',
-    isEmailVerified: true, // Auto-verify everyone (emails disabled)
-  });
+
+  let user;
+  try {
+    user = await User.create({
+      fullName,
+      username,
+      email,
+      matricNumber,
+      passwordHash: password, // pre-save hook hashes this
+      role: 'student',
+      isEmailVerified: true, // Auto-verify everyone (emails disabled)
+    });
+  } catch (caught) {
+    // A concurrent request can slip past the findOne check and trip a unique
+    // index. Map the duplicate-key error to a clear, field-aware message.
+    if (caught?.code === 11000) {
+      const field = Object.keys(caught.keyPattern ?? {})[0];
+      const message =
+        field === 'email'
+          ? 'An account with this email already exists.'
+          : field === 'username'
+            ? 'That username is already taken.'
+            : field === 'matricNumber'
+              ? 'That matric number is already registered. Leave it blank if it is not yours.'
+              : 'Could not create your account. Please try again.';
+      throw new AppError(409, 'REGISTRATION_FAILED', message);
+    }
+    throw caught;
+  }
 
   // Verification emails disabled per request
   // await issueVerification(user);
