@@ -8,11 +8,18 @@ export const validate = (schema) => (req, res, next) => {
   const result = schema.safeParse({ body: req.body, query: req.query, params: req.params });
 
   if (!result.success) {
+    const issues = result.error.issues || [];
+    const fields = {};
+    for (const issue of issues) {
+      const path = issue.path.filter((p) => p !== 'body').join('.');
+      if (path && !fields[path]) fields[path] = issue.message;
+    }
+    const firstMessage = issues[0]?.message || 'Please check your input and try again.';
     return res.status(422).json({
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Invalid input.',
-        details: result.error, // Return the raw error for more detail
+        message: firstMessage,
+        fields,
       },
     });
   }

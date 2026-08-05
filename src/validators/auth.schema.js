@@ -31,9 +31,7 @@ export const registerSchema = z.object({
   body: z
     .object({
       fullName,
-      username,
       email,
-      matricNumber,
       password,
       confirmPassword: z.string(),
     })
