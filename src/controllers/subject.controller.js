@@ -6,7 +6,13 @@ import * as auditService from '../services/audit.service.js';
 export const listSubjects = asyncHandler(async (req, res) => {
   const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
   const includeInactive = isAdmin && req.query.all === 'true';
-  const subjects = await subjectService.listSubjects({ includeInactive });
+  const { level, department } = req.query;
+
+  const subjects = await subjectService.listSubjects({
+    includeInactive,
+    level,
+    department
+  });
   res.json({ subjects });
 });
 

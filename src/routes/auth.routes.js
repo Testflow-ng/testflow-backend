@@ -24,6 +24,8 @@ router.post('/forgot-password', validate(emailOnlySchema), auth.forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), auth.resetPassword);
 
 router.patch('/profile', authenticate, auth.updateProfile);
+router.patch('/migrate', authenticate, auth.migrateToUniversity);
+router.patch('/utme-data', authenticate, auth.updateUtmeData);
 router.post('/change-password', authenticate, auth.changePassword);
 
 export default router;
