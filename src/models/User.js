@@ -13,6 +13,16 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ['student', 'admin', 'super_admin'], default: 'student' },
 
+    // Post-UTME specific fields
+    isPostUtmePaid: { type: Boolean, default: false },
+    verificationCode: { type: String, unique: true, sparse: true, uppercase: true },
+    hasMigrated: { type: Boolean, default: false },
+    utmeData: {
+      jambScore: { type: Number, min: 0, max: 400, default: 0 },
+      oLevelPoints: { type: Number, min: 0, max: 10, default: 0 },
+      departmentChoice: { type: String, trim: true },
+    },
+
     level: { type: String, enum: ['100', '200', '300', '400', '500'] },
     department: { type: String, trim: true },
 
@@ -38,6 +48,8 @@ const userSchema = new mongoose.Schema(
 
 // Supports admin roster queries (filter by role, then department/level).
 userSchema.index({ role: 1, department: 1, level: 1 });
+userSchema.index({ role: 1, createdAt: -1 });
+userSchema.index({ role: 1, isPostUtmePaid: 1 });
 
 userSchema.pre('save', async function hashPassword() {
   if (!this.isModified('passwordHash')) {
