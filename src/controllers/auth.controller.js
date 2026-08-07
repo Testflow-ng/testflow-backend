@@ -111,6 +111,16 @@ export const updateProfile = asyncHandler(async (req, res) => {
   res.status(200).json({ user });
 });
 
+export const migrateToUniversity = asyncHandler(async (req, res) => {
+  const user = await authService.migrateToUniversity(req.user._id, req.body);
+  res.status(200).json({ user });
+});
+
+export const updateUtmeData = asyncHandler(async (req, res) => {
+  const user = await authService.updateUtmeData(req.user._id, req.body);
+  res.status(200).json({ user });
+});
+
 export const changePassword = asyncHandler(async (req, res) => {
   await authService.changePassword(req.user._id, req.body);
   clearAuthCookies(res);
