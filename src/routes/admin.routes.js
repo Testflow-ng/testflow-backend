@@ -9,10 +9,14 @@ const router = Router();
 router.use(authenticate, authorize('admin'));
 
 router.get('/stats', admin.getDashboardStats);
+router.get('/settings', admin.getSettings);
+router.patch('/settings', admin.updateSettings);
 router.get('/students', admin.listStudents);
 router.post('/students', admin.createStudent);
 router.patch('/students/:id/reset-password', admin.resetUserPassword);
 router.patch('/students/:id/toggle-status', admin.toggleUserStatus);
+router.post('/verify-utme', admin.verifyPostUtme);
+router.get('/post-utme/rankings', admin.getPostUtmeRankings);
 router.get('/export-results', admin.exportResults);
 
 // Admin Management (Super Admin only)
