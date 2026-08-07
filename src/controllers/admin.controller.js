@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
 import { ExamSession } from '../models/ExamSession.js';
+import { Settings } from '../models/Settings.js';
 import * as auditService from '../services/audit.service.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -15,6 +16,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
   const [
     totalStudents,
     totalAdmins,
+    totalPostUtmePaid,
     totalSubjects,
     totalQuestions,
     totalSessions,
@@ -26,15 +28,19 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     levelStats,
     dau,
     wau,
-    mau
+    mau,
+    newStudentsToday,
+    newStudentsWeek,
+    newStudentsMonth
   ] = await Promise.all([
     User.countDocuments({ role: 'student' }),
     User.countDocuments({ role: 'admin' }),
+    User.countDocuments({ role: 'student', isPostUtmePaid: true }),
     Subject.countDocuments(),
     Question.countDocuments(),
     ExamSession.countDocuments(),
     ExamSession.countDocuments({ status: 'submitted' }),
-    User.find({ role: 'student' }).sort({ createdAt: -1 }).limit(5),
+    User.find({ role: 'student' }).sort({ createdAt: -1 }).limit(5).lean(),
     // Sessions started in the last hour and still in progress
     ExamSession.countDocuments({
       status: 'in_progress',
@@ -54,7 +60,10 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     ]),
     User.countDocuments({ role: 'student', lastActiveAt: { $gt: dayAgo } }),
     User.countDocuments({ role: 'student', lastActiveAt: { $gt: weekAgo } }),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: monthAgo } })
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: monthAgo } }),
+    User.countDocuments({ role: 'student', createdAt: { $gt: dayAgo } }),
+    User.countDocuments({ role: 'student', createdAt: { $gt: weekAgo } }),
+    User.countDocuments({ role: 'student', createdAt: { $gt: monthAgo } })
   ]);
 
   res.json({
@@ -62,11 +71,18 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
       users: {
         total: totalStudents + totalAdmins,
         students: totalStudents,
+        postUtmePaid: totalPostUtmePaid,
+        uniStudents: totalStudents - totalPostUtmePaid,
         admins: totalAdmins,
         activity: {
           daily: dau,
           weekly: wau,
           monthly: mau
+        },
+        growth: {
+          today: newStudentsToday,
+          week: newStudentsWeek,
+          month: newStudentsMonth
         }
       },
       content: {
@@ -295,6 +311,58 @@ export const toggleUserStatus = asyncHandler(async (req, res) => {
   res.json({ user });
 });
 
+export const verifyPostUtme = asyncHandler(async (req, res) => {
+  const { verificationCode } = req.body;
+  if (!verificationCode) {
+    throw new AppError(400, 'INVALID_INPUT', 'Verification code is required.');
+  }
+
+  const user = await User.findOne({ verificationCode: verificationCode.toUpperCase() });
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'No user found with this verification code.');
+  }
+
+  if (user.isPostUtmePaid) {
+    throw new AppError(400, 'ALREADY_PAID', 'This user is already verified for Post-UTME.');
+  }
+
+  user.isPostUtmePaid = true;
+  await user.save();
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'VERIFY_POST_UTME',
+    targetId: user._id,
+    targetType: 'User',
+    metadata: { code: verificationCode, email: user.email },
+    req
+  });
+
+  res.json({ user });
+});
+
+export const getSettings = asyncHandler(async (req, res) => {
+  const settings = await Settings.getInstance();
+  res.json({ settings });
+});
+
+export const updateSettings = asyncHandler(async (req, res) => {
+  const settings = await Settings.getInstance();
+  Object.assign(settings, req.body);
+  await settings.save();
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'UPDATE_SETTINGS',
+    targetId: settings._id,
+    targetType: 'Settings',
+    metadata: req.body,
+    req
+  });
+
+  res.json({ settings });
+});
+
 export const exportResults = asyncHandler(async (req, res) => {
   const sessions = await ExamSession.find({ status: 'submitted' })
     .populate('student', 'fullName email matricNumber')
@@ -325,4 +393,71 @@ export const exportResults = asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=testflow-results.csv');
   res.status(200).send(csv);
+});
+
+export const getPostUtmeRankings = asyncHandler(async (req, res) => {
+  const { limit = 100 } = req.query;
+
+  const rankings = await User.aggregate([
+    { $match: { role: 'student' } },
+    {
+      $lookup: {
+        from: 'examsessions',
+        let: { userId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$student', '$$userId'] },
+                  { $eq: ['$status', 'submitted'] }
+                ]
+              }
+            }
+          }
+        ],
+        as: 'mockSessions'
+      }
+    },
+    {
+      $addFields: {
+        avgMockScore: {
+          $cond: {
+            if: { $gt: [{ $size: '$mockSessions' }, 0] },
+            then: { $avg: '$mockSessions.score' },
+            else: 0
+          }
+        },
+        jambScore: { $ifNull: ['$utmeData.jambScore', 0] },
+        oLevelPoints: { $ifNull: ['$utmeData.oLevelPoints', 0] }
+      }
+    },
+    {
+      $addFields: {
+        aggregate: {
+          $add: [
+            { $divide: ['$jambScore', 8] },
+            '$oLevelPoints',
+            '$avgMockScore'
+          ]
+        }
+      }
+    },
+    { $sort: { aggregate: -1 } },
+    { $limit: parseInt(limit, 10) },
+    {
+      $project: {
+        fullName: 1,
+        email: 1,
+        username: 1,
+        jambScore: 1,
+        oLevelPoints: 1,
+        avgMockScore: 1,
+        aggregate: 1,
+        isPostUtmePaid: 1
+      }
+    }
+  ]);
+
+  res.json({ rankings });
 });
