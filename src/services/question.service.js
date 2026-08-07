@@ -6,10 +6,8 @@ import { AppError } from '../utils/AppError.js';
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 
 /** Resolve a subject reference (ObjectId or code like "PHY102") to its ObjectId. */
-const resolveSubjectId = async (subjectRef, autoCreate = false) => {
+const resolveSubjectId = async (subjectRef, autoCreate = false, preferredLevel) => {
   if (OBJECT_ID.test(subjectRef)) {
-    // An id-shaped input is an id lookup; a miss is a hard 404 (don't reinterpret
-    // a 24-char hex string as a subject code).
     const byId = await Subject.findById(subjectRef);
     if (!byId) {
       throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found.');
@@ -23,8 +21,12 @@ const resolveSubjectId = async (subjectRef, autoCreate = false) => {
     if (autoCreate) {
       try {
         // Try to infer level from the first digit of the subject code (e.g., MTH101 -> 100)
-        const match = code.match(/\d/);
-        const level = match ? `${match[0]}00` : undefined;
+        // Unless it's a Post-UTME code (often starts with UTME or similar)
+        let level = preferredLevel;
+        if (!level) {
+          const match = code.match(/\d/);
+          level = match ? `${match[0]}00` : undefined;
+        }
 
         // Auto-create a placeholder subject so the bulk import doesn't fail.
         const newSubject = await Subject.create({
@@ -36,7 +38,6 @@ const resolveSubjectId = async (subjectRef, autoCreate = false) => {
         });
         return newSubject._id;
       } catch (err) {
-        // If we lost a race and it was created by a concurrent request, try fetching it one last time
         if (err.code === 11000) {
           const retry = await Subject.findOne({ code });
           if (retry) return retry._id;
@@ -50,7 +51,7 @@ const resolveSubjectId = async (subjectRef, autoCreate = false) => {
 };
 
 export const createQuestion = async (data, adminId) => {
-  const subject = await resolveSubjectId(data.subject);
+  const subject = await resolveSubjectId(data.subject, false, data.level);
   return Question.create({ ...data, subject, createdBy: adminId });
 };
 
@@ -62,7 +63,7 @@ export const bulkCreateQuestions = async (questionsData, adminId) => {
   for (const data of questionsData) {
     let subjectId = subjectMap.get(data.subject);
     if (!subjectId) {
-      subjectId = await resolveSubjectId(data.subject, true); // Use autoCreate = true
+      subjectId = await resolveSubjectId(data.subject, true, data.level); // Pass preferred level
       subjectMap.set(data.subject, subjectId);
     }
     questions.push({ ...data, subject: subjectId, createdBy: adminId });
@@ -127,34 +128,17 @@ export const listSubjectTopics = async (subjectId) => {
     },
     {
       $group: {
-        _id: { $ifNull: ["$topicId", "$topic"] },
-        names: { $addToSet: "$topic" },
+        _id: "$topicId",
+        name: { $first: "$topic" },
         count: { $sum: 1 }
       }
     },
     { $sort: { _id: 1 } }
   ]);
 
-  return aggregated.map(t => {
-    const validNames = t.names
-      .filter(n => n && n.trim())
-      .map(n => n.trim())
-      .sort();
-
-    let displayName = "General Material";
-    if (validNames.length > 0) {
-      if (validNames.length === 1) {
-        displayName = validNames[0];
-      } else {
-        displayName = validNames.slice(0, 2).join(", ");
-        if (validNames.length > 2) displayName += "...";
-      }
-    }
-
-    return {
-      id: t._id,
-      name: displayName,
-      totalQuestions: t.count
-    };
-  });
+  return aggregated.map(t => ({
+    id: t._id || 'T-OTHERS',
+    name: t.name || 'General Material',
+    totalQuestions: t.count
+  }));
 };

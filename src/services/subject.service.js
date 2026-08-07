@@ -5,8 +5,21 @@ import { ExamSession } from '../models/ExamSession.js';
 import { AppError } from '../utils/AppError.js';
 
 /** List subjects (active by default), each annotated with its active question count. */
-export const listSubjects = async ({ includeInactive = false } = {}) => {
+export const listSubjects = async ({ includeInactive = false, level, department } = {}) => {
   const filter = includeInactive ? {} : { isActive: true };
+
+  if (level) {
+    filter.level = level;
+  }
+
+  if (department) {
+    // Show departmental subjects OR general subjects
+    filter.$or = [
+      { department: department },
+      { isGeneral: true }
+    ];
+  }
+
   const subjects = await Subject.find(filter).sort({ code: 1 });
 
   const counts = await Question.aggregate([

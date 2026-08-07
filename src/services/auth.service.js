@@ -7,6 +7,16 @@ import { sendVerificationEmail, sendPasswordResetEmail } from './email.service.j
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+/** Generate a short, readable alphanumeric code for manual Post-UTME verification. */
+const generateVerificationCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No O, 0, I, 1 to avoid confusion
+  let code = 'UTME-';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
+
 // Constant dummy hash so login runs bcrypt even for unknown emails (blunts timing enumeration).
 const DUMMY_HASH = bcrypt.hashSync('timing-attack-guard', 12);
 
@@ -31,6 +41,7 @@ export const register = async ({ fullName, email, password }) => {
       email,
       passwordHash: password,
       role: 'student',
+      verificationCode: generateVerificationCode(),
       isEmailVerified: true,
     });
   } catch (caught) {
@@ -133,6 +144,46 @@ export const updateProfile = async (userId, { fullName, showOnLeaderboard }) => 
   if (!user) {
     throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
   }
+  return user;
+};
+
+export const migrateToUniversity = async (userId, { level, department, matricNumber }) => {
+  if (!level || !department) {
+    throw new AppError(400, 'INVALID_INPUT', 'Level and department are required for migration.');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+
+  // Only allow migration for students who haven't migrated yet
+  if (user.hasMigrated) {
+    throw new AppError(400, 'ALREADY_MIGRATED', 'This user has already migrated to university level.');
+  }
+
+  user.level = level;
+  user.department = department;
+  if (matricNumber) user.matricNumber = matricNumber;
+  user.hasMigrated = true;
+
+  await user.save();
+  return user;
+};
+
+export const updateUtmeData = async (userId, data) => {
+  const { jambScore, oLevelPoints, departmentChoice } = data;
+
+  const updates = {};
+  if (jambScore !== undefined) updates['utmeData.jambScore'] = jambScore;
+  if (oLevelPoints !== undefined) updates['utmeData.oLevelPoints'] = oLevelPoints;
+  if (departmentChoice !== undefined) updates['utmeData.departmentChoice'] = departmentChoice;
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
+
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
   return user;
 };
 
