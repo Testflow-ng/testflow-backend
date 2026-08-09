@@ -19,11 +19,6 @@ export const submitRequest = asyncHandler(async (req, res) => {
   }
 
   const { transactionRef } = req.body;
-  if (!transactionRef) {
-    await fs.unlink(req.file.path).catch(() => {});
-    throw new AppError(400, 'NO_REF', 'Please provide a transaction reference.');
-  }
-
   const studentId = req.user._id;
   const hash = await getFileHash(req.file.path);
 
@@ -34,11 +29,13 @@ export const submitRequest = asyncHandler(async (req, res) => {
     throw new AppError(409, 'DUPLICATE_RECEIPT', 'This receipt has already been used by another student.');
   }
 
-  // 2. Anti-Fraud: Check if this Transaction Ref has been used before (Sharing Details)
-  const duplicateRef = await VerificationRequest.findOne({ transactionRef: transactionRef.trim() });
-  if (duplicateRef) {
-    await fs.unlink(req.file.path).catch(() => {});
-    throw new AppError(409, 'DUPLICATE_REF', 'This transaction reference has already been claimed.');
+  // 2. Anti-Fraud: Check if this Transaction Ref has been used before (if provided)
+  if (transactionRef) {
+    const duplicateRef = await VerificationRequest.findOne({ transactionRef: transactionRef.trim() });
+    if (duplicateRef) {
+      await fs.unlink(req.file.path).catch(() => {});
+      throw new AppError(409, 'DUPLICATE_REF', 'This transaction reference has already been claimed.');
+    }
   }
 
   // Check if student already has a pending request
@@ -59,7 +56,7 @@ export const submitRequest = asyncHandler(async (req, res) => {
     student: studentId,
     receiptImage: upload.url, // Full ImageKit URL
     receiptHash: hash,
-    transactionRef: transactionRef.trim()
+    transactionRef: transactionRef?.trim()
   });
 
   await auditService.recordAction({

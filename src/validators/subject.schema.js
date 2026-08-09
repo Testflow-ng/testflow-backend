@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
 export const listSubjectsSchema = z.object({
-  query: z.object({ all: z.enum(['true', 'false']).optional() }).strict(),
+  query: z.object({
+    all: z.enum(['true', 'false']).optional(),
+    level: z.enum(['post-utme', '100', '200', '300', '400', '500']).optional(),
+    department: z.string().optional()
+  }).strict(),
 });
 
 export const subjectCodeSchema = z.object({
