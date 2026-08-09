@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import imagekit, { getAuthParams } from '../utils/imagekit.js';
+import { config } from '../config/env.js';
 import * as auditService from '../services/audit.service.js';
 
 export const getIKAuth = asyncHandler(async (req, res) => {
