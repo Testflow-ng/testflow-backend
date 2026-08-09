@@ -488,9 +488,10 @@ export const getPostUtmeRankings = asyncHandler(async (req, res) => {
 });
 
 export const getActivityFeed = asyncHandler(async (req, res) => {
+  const { limit = 20 } = req.query;
   const logs = await AuditLog.find()
     .sort({ createdAt: -1 })
-    .limit(20)
+    .limit(parseInt(limit, 10))
     .populate('actor', 'fullName')
     .lean();
 
