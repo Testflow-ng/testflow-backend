@@ -17,6 +17,8 @@ export const createSubjectSchema = z.object({
     code: z.string().trim().min(1).max(20),
     title: z.string().trim().min(1).max(160),
     description: z.string().trim().max(500).optional(),
+    level: z.enum(['post-utme', '100', '200', '300', '400', '500']).default('100'),
+    department: z.string().trim().max(100).optional(),
     isActive: z.boolean().optional(),
   }).strict(),
 });
@@ -28,6 +30,8 @@ export const updateSubjectSchema = z.object({
       code: z.string().trim().min(1).max(20).optional(),
       title: z.string().trim().min(1).max(160).optional(),
       description: z.string().trim().max(500).optional(),
+      level: z.enum(['post-utme', '100', '200', '300', '400', '500']).optional(),
+      department: z.string().trim().max(100).optional(),
       isActive: z.boolean().optional(),
     })
     .strict(),
