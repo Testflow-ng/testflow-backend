@@ -22,6 +22,8 @@ console.log(`  - Public Key:  ${publicKey ? 'OK (' + publicKey.length + ' chars)
 console.log(`  - Private Key: ${privateKey ? 'OK (' + privateKey.length + ' chars)' : 'MISSING'}`);
 console.log(`  - Endpoint:    ${urlEndpoint ? 'OK' : 'MISSING'}`);
 
+console.log('[ImageKit] Instance Keys:', Object.keys(imagekit));
+
 /**
  * Get authentication parameters for client-side upload.
  * These are valid for 60 seconds by default.
@@ -30,7 +32,18 @@ export const getAuthParams = () => {
   if (!publicKey || !privateKey || !urlEndpoint) {
     throw new Error('ImageKit credentials not configured correctly.');
   }
-  return imagekit.getAuthenticationParameters();
+
+  // In @imagekit/nodejs v7+, this method moved to the helper submodule
+  if (imagekit.helper && typeof imagekit.helper.getAuthenticationParameters === 'function') {
+    return imagekit.helper.getAuthenticationParameters();
+  }
+
+  // Fallback for older versions just in case
+  if (typeof imagekit.getAuthenticationParameters === 'function') {
+    return imagekit.getAuthenticationParameters();
+  }
+
+  throw new Error('ImageKit SDK method getAuthenticationParameters not found on instance or helper.');
 };
 
 export default imagekit;
