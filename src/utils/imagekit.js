@@ -2,53 +2,34 @@ import ImageKit from '@imagekit/nodejs';
 import { config } from '../config/env.js';
 import fs from 'node:fs/promises';
 
-// Initialize ImageKit
-const publicKey = config.IMAGEKIT_PUBLIC_KEY;
-const privateKey = config.IMAGEKIT_PRIVATE_KEY;
-const urlEndpoint = config.IMAGEKIT_URL_ENDPOINT;
+// Initialize ImageKit with trimmed keys to avoid hidden whitespace issues
+const publicKey = config.IMAGEKIT_PUBLIC_KEY?.trim();
+const privateKey = config.IMAGEKIT_PRIVATE_KEY?.trim();
+const urlEndpoint = config.IMAGEKIT_URL_ENDPOINT?.trim();
+
+if (typeof ImageKit !== 'function') {
+  console.error('❌ [ImageKit] Fatal Error: ImageKit constructor not found. Check import format.');
+}
+
+const imagekit = new ImageKit({
+  publicKey: publicKey || '',
+  privateKey: privateKey || '',
+  urlEndpoint: urlEndpoint || '',
+});
 
 console.log('[ImageKit] Initialization Check:');
 console.log(`  - Public Key:  ${publicKey ? 'OK (' + publicKey.length + ' chars)' : 'MISSING'}`);
 console.log(`  - Private Key: ${privateKey ? 'OK (' + privateKey.length + ' chars)' : 'MISSING'}`);
 console.log(`  - Endpoint:    ${urlEndpoint ? 'OK' : 'MISSING'}`);
 
-const imagekit = new ImageKit({
-  publicKey,
-  privateKey,
-  urlEndpoint,
-});
-
 /**
- * Upload a local file to ImageKit and delete it from the server afterwards.
- * @param {string} filePath - Local path to the file
- * @param {string} fileName - Destination filename in ImageKit
- * @param {string} folder - Folder name in ImageKit (e.g. 'receipts')
- * @returns {Promise<object>} - ImageKit upload response
+ * Get authentication parameters for client-side upload.
+ * These are valid for 60 seconds by default.
  */
-export const uploadToImageKit = async (filePath, fileName, folder = 'receipts') => {
-  try {
-    const fileContent = await fs.readFile(filePath);
-
-    const response = await imagekit.upload({
-      file: fileContent,
-      fileName,
-      folder,
-      useUniqueFileName: true,
-    });
-
-    // Cleanup: Remove local file after successful upload
-    await fs.unlink(filePath).catch(err => console.error('ImageKit Cleanup Error:', err));
-
-    return response;
-  } catch (error) {
-    console.error('ImageKit Upload Error:', error);
-    // Even if upload fails, we should attempt to cleanup if the file exists
-    await fs.unlink(filePath).catch(() => {});
-    throw error;
-  }
-};
-
 export const getAuthParams = () => {
+  if (!publicKey || !privateKey || !urlEndpoint) {
+    throw new Error('ImageKit credentials not configured correctly.');
+  }
   return imagekit.getAuthenticationParameters();
 };
 
