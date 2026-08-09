@@ -1,11 +1,12 @@
-import { asyncHandler } from '../middleware/asyncHandler.js';
 import { User } from '../models/User.js';
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
 import { ExamSession } from '../models/ExamSession.js';
 import { Settings } from '../models/Settings.js';
+import { AuditLog } from '../models/AuditLog.js';
 import * as auditService from '../services/audit.service.js';
 import { AppError } from '../utils/AppError.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 export const getDashboardStats = asyncHandler(async (req, res) => {
   const now = new Date();
@@ -484,4 +485,53 @@ export const getPostUtmeRankings = asyncHandler(async (req, res) => {
   ]);
 
   res.json({ rankings });
+});
+
+export const getActivityFeed = asyncHandler(async (req, res) => {
+  const logs = await AuditLog.find()
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .populate('actor', 'fullName')
+    .lean();
+
+  res.json({ logs });
+});
+
+export const bulkDeleteQuestions = asyncHandler(async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError(400, 'INVALID_INPUT', 'List of question IDs is required.');
+  }
+
+  const result = await Question.deleteMany({ _id: { $in: ids } });
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'BULK_DELETE_QUESTIONS',
+    metadata: { count: result.deletedCount, ids },
+    req
+  });
+
+  res.json({ message: `Successfully deleted ${result.deletedCount} questions.` });
+});
+
+export const bulkToggleQuestions = asyncHandler(async (req, res) => {
+  const { ids, isActive } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError(400, 'INVALID_INPUT', 'List of question IDs is required.');
+  }
+
+  const result = await Question.updateMany(
+    { _id: { $in: ids } },
+    { $set: { isActive: !!isActive } }
+  );
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'BULK_TOGGLE_QUESTIONS',
+    metadata: { count: result.modifiedCount, isActive, ids },
+    req
+  });
+
+  res.json({ message: `Successfully updated ${result.modifiedCount} questions.` });
 });

@@ -16,7 +16,14 @@ const auditLogSchema = new mongoose.Schema(
         'RESET_PASSWORD',
         'TOGGLE_USER_STATUS',
         'BULK_IMPORT',
-        'EXPORT_RESULTS'
+        'EXPORT_RESULTS',
+        'SUBMIT_VERIFICATION',
+        'APPROVE_VERIFICATION',
+        'REJECT_VERIFICATION',
+        'BULK_DELETE_QUESTIONS',
+        'BULK_TOGGLE_QUESTIONS',
+        'CREATE_SUBJECT',
+        'DELETE_SUBJECT'
       ]
     },
     targetId: { type: mongoose.Schema.Types.ObjectId }, // ID of the user/subject/question affected

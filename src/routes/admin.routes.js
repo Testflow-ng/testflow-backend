@@ -9,6 +9,7 @@ const router = Router();
 router.use(authenticate, authorize('admin'));
 
 router.get('/stats', admin.getDashboardStats);
+router.get('/activity', admin.getActivityFeed);
 router.get('/settings', admin.getSettings);
 router.patch('/settings', admin.updateSettings);
 router.get('/students', admin.listStudents);
@@ -18,6 +19,10 @@ router.patch('/students/:id/toggle-status', admin.toggleUserStatus);
 router.post('/verify-utme', admin.verifyPostUtme);
 router.get('/post-utme/rankings', admin.getPostUtmeRankings);
 router.get('/export-results', admin.exportResults);
+
+// Bulk Questions
+router.post('/questions/bulk-delete', admin.bulkDeleteQuestions);
+router.post('/questions/bulk-toggle', admin.bulkToggleQuestions);
 
 // Admin Management (Super Admin only)
 router.get('/roster', authorize('super_admin'), admin.listAdmins);
