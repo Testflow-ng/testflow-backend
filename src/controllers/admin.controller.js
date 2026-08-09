@@ -9,9 +9,12 @@ import { AppError } from '../utils/AppError.js';
 
 export const getDashboardStats = asyncHandler(async (req, res) => {
   const now = new Date();
-  const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
-  const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-  const monthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+  const todayStart = new Date(now.setHours(0, 0, 0, 0));
+  const yesterdayStart = new Date(new Date(todayStart).setDate(todayStart.getDate() - 1));
+  const weekAgoStart = new Date(new Date(todayStart).setDate(todayStart.getDate() - 7));
+  const prevWeekAgoStart = new Date(new Date(weekAgoStart).setDate(weekAgoStart.getDate() - 7));
+  const monthAgoStart = new Date(new Date(todayStart).setMonth(todayStart.getMonth() - 1));
+  const prevMonthAgoStart = new Date(new Date(monthAgoStart).setMonth(monthAgoStart.getMonth() - 1));
 
   const [
     totalStudents,
@@ -30,8 +33,11 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     wau,
     mau,
     newStudentsToday,
+    newStudentsYesterday,
     newStudentsWeek,
-    newStudentsMonth
+    newStudentsPrevWeek,
+    newStudentsMonth,
+    newStudentsPrevMonth
   ] = await Promise.all([
     User.countDocuments({ role: 'student' }),
     User.countDocuments({ role: 'admin' }),
@@ -58,13 +64,23 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     Subject.aggregate([
       { $group: { _id: '$level', count: { $sum: 1 } } }
     ]),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: dayAgo } }),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: weekAgo } }),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: monthAgo } }),
-    User.countDocuments({ role: 'student', createdAt: { $gt: dayAgo } }),
-    User.countDocuments({ role: 'student', createdAt: { $gt: weekAgo } }),
-    User.countDocuments({ role: 'student', createdAt: { $gt: monthAgo } })
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: weekAgoStart } }),
+    User.countDocuments({ role: 'student', lastActiveAt: { $gt: monthAgoStart } }),
+
+    // Growth metrics
+    User.countDocuments({ role: 'student', createdAt: { $gte: todayStart } }),
+    User.countDocuments({ role: 'student', createdAt: { $gte: yesterdayStart, $lt: todayStart } }),
+    User.countDocuments({ role: 'student', createdAt: { $gte: weekAgoStart } }),
+    User.countDocuments({ role: 'student', createdAt: { $gte: prevWeekAgoStart, $lt: weekAgoStart } }),
+    User.countDocuments({ role: 'student', createdAt: { $gte: monthAgoStart } }),
+    User.countDocuments({ role: 'student', createdAt: { $gte: prevMonthAgoStart, $lt: monthAgoStart } })
   ]);
+
+  const calculateGrowth = (current, previous) => {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return Math.round(((current - previous) / previous) * 100);
+  };
 
   res.json({
     stats: {
@@ -81,8 +97,16 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
         },
         growth: {
           today: newStudentsToday,
+          yesterday: newStudentsYesterday,
+          todayPercent: calculateGrowth(newStudentsToday, newStudentsYesterday),
+
           week: newStudentsWeek,
-          month: newStudentsMonth
+          prevWeek: newStudentsPrevWeek,
+          weekPercent: calculateGrowth(newStudentsWeek, newStudentsPrevWeek),
+
+          month: newStudentsMonth,
+          prevMonth: newStudentsPrevMonth,
+          monthPercent: calculateGrowth(newStudentsMonth, newStudentsPrevMonth)
         }
       },
       content: {
