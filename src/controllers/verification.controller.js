@@ -67,6 +67,11 @@ export const submitRequest = asyncHandler(async (req, res) => {
     action: 'SUBMIT_VERIFICATION',
     targetId: request._id,
     targetType: 'VerificationRequest',
+    metadata: {
+        fullName: req.user.fullName,
+        verificationCode: req.user.verificationCode,
+        transactionRef: transactionRef.trim()
+    },
     req
   });
 
@@ -102,7 +107,7 @@ export const processRequest = asyncHandler(async (req, res) => {
     throw new AppError(400, 'INVALID_STATUS', 'Status must be approved or rejected.');
   }
 
-  const request = await VerificationRequest.findById(id);
+  const request = await VerificationRequest.findById(id).populate('student', 'fullName verificationCode');
   if (!request) throw new AppError(404, 'NOT_FOUND', 'Request not found.');
 
   if (request.status !== 'pending') {
@@ -124,7 +129,12 @@ export const processRequest = asyncHandler(async (req, res) => {
     action: status === 'approved' ? 'APPROVE_VERIFICATION' : 'REJECT_VERIFICATION',
     targetId: request._id,
     targetType: 'VerificationRequest',
-    metadata: { studentId: request.student, reason: rejectionReason },
+    metadata: {
+        studentId: request.student._id,
+        studentName: request.student.fullName,
+        studentCode: request.student.verificationCode,
+        reason: rejectionReason
+    },
     req
   });
 

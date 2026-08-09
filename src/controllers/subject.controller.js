@@ -40,12 +40,35 @@ export const togglePin = asyncHandler(async (req, res) => {
 });
 
 export const deleteSubject = asyncHandler(async (req, res) => {
+  const subject = await subjectService.getSubjectById(req.params.id);
+  if (!subject) return res.status(204).send();
+
   await subjectService.deleteSubject(req.params.id);
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'DELETE_SUBJECT',
+    targetId: req.params.id,
+    targetType: 'Subject',
+    metadata: { code: subject.code, title: subject.title },
+    req
+  });
+
   res.status(204).send();
 });
 
 export const createSubject = asyncHandler(async (req, res) => {
   const subject = await subjectService.createSubject(req.body);
+
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'CREATE_SUBJECT',
+    targetId: subject._id,
+    targetType: 'Subject',
+    metadata: { code: subject.code, title: subject.title, level: subject.level },
+    req
+  });
+
   res.status(201).json({ subject });
 });
 
