@@ -5,7 +5,7 @@ export const listSubjectsSchema = z.object({
     all: z.enum(['true', 'false']).optional(),
     level: z.enum(['post-utme', '100', '200', '300', '400', '500']).optional(),
     department: z.string().optional()
-  }).strict(),
+  }).catchall(z.any()), // Allow extra query params to avoid strictness issues
 });
 
 export const subjectCodeSchema = z.object({

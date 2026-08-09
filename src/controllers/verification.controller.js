@@ -70,7 +70,7 @@ export const submitRequest = asyncHandler(async (req, res) => {
     metadata: {
         fullName: req.user.fullName,
         verificationCode: req.user.verificationCode,
-        transactionRef: transactionRef.trim()
+        transactionRef: transactionRef ? String(transactionRef).trim() : 'N/A'
     },
     req
   });
