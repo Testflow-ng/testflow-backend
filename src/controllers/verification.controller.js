@@ -11,7 +11,8 @@ export const getIKAuth = asyncHandler(async (req, res) => {
     res.json(auth);
   } catch (error) {
     console.error('ImageKit Auth Params Error:', error);
-    throw new AppError(500, 'IMAGEKIT_AUTH_ERROR', 'Failed to generate cloud upload signature.');
+    // Include specific error message for debugging
+    throw new AppError(500, 'IMAGEKIT_AUTH_ERROR', `Failed to generate cloud upload signature: ${error.message || 'Unknown error'}`);
   }
 });
 

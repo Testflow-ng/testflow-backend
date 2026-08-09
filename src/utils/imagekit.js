@@ -3,13 +3,14 @@ import { config } from '../config/env.js';
 import fs from 'node:fs/promises';
 
 // Initialize ImageKit
-const publicKey = config.IMAGEKIT_PUBLIC_KEY || '';
-const privateKey = config.IMAGEKIT_PRIVATE_KEY || '';
-const urlEndpoint = config.IMAGEKIT_URL_ENDPOINT || '';
+const publicKey = config.IMAGEKIT_PUBLIC_KEY;
+const privateKey = config.IMAGEKIT_PRIVATE_KEY;
+const urlEndpoint = config.IMAGEKIT_URL_ENDPOINT;
 
-if (!publicKey || !privateKey || !urlEndpoint) {
-  console.warn('⚠️ ImageKit credentials missing. Uploads will fail.');
-}
+console.log('[ImageKit] Initialization Check:');
+console.log(`  - Public Key:  ${publicKey ? 'OK (' + publicKey.length + ' chars)' : 'MISSING'}`);
+console.log(`  - Private Key: ${privateKey ? 'OK (' + privateKey.length + ' chars)' : 'MISSING'}`);
+console.log(`  - Endpoint:    ${urlEndpoint ? 'OK' : 'MISSING'}`);
 
 const imagekit = new ImageKit({
   publicKey,

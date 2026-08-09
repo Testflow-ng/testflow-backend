@@ -24,9 +24,9 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
 
-  IMAGEKIT_PUBLIC_KEY: z.string().optional(),
-  IMAGEKIT_PRIVATE_KEY: z.string().optional(),
-  IMAGEKIT_URL_ENDPOINT: z.string().url().optional(),
+  IMAGEKIT_PUBLIC_KEY: z.string().min(1, 'IMAGEKIT_PUBLIC_KEY is required'),
+  IMAGEKIT_PRIVATE_KEY: z.string().min(1, 'IMAGEKIT_PRIVATE_KEY is required'),
+  IMAGEKIT_URL_ENDPOINT: z.string().url('IMAGEKIT_URL_ENDPOINT must be a valid URL'),
 });
 
 const parsed = schema.safeParse(process.env);
