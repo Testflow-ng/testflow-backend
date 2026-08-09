@@ -18,7 +18,7 @@ const postUtmeQuestionSchema = new mongoose.Schema(
 const postUtmeSessionSchema = new mongoose.Schema(
   {
     student: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    // OAU Post-UTME usually involves 4 subjects (including Use of English)
+    // Post-UTME usually involves 4 subjects (including Use of English)
     subjects: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true }],
     subjectCodes: [String],
     status: {
