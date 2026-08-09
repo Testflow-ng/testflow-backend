@@ -98,6 +98,7 @@ export const startSession = async (studentId, { subjects: subjectRefs }) => {
       allQuestions.push({
         question: q._id,
         subject: subject._id,
+        subjectCode: subject.code,
         stem: q.stem,
         options: shuffledOptions.map(o => o.option),
         correctOption: shuffledOptions.findIndex(o => o.i === q.correctIndex),

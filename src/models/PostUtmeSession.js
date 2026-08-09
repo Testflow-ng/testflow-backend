@@ -4,6 +4,7 @@ const postUtmeQuestionSchema = new mongoose.Schema(
   {
     question: { type: mongoose.Schema.Types.ObjectId, ref: 'Question', required: true },
     subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
+    subjectCode: { type: String, required: true },
     stem: { type: String, required: true },
     options: { type: [String], required: true },
     correctOption: { type: Number, required: true },
