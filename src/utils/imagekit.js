@@ -3,10 +3,18 @@ import { config } from '../config/env.js';
 import fs from 'node:fs/promises';
 
 // Initialize ImageKit
+const publicKey = process.env.IMAGEKIT_PUBLIC_KEY || '';
+const privateKey = process.env.IMAGEKIT_PRIVATE_KEY || '';
+const urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT || '';
+
+if (!publicKey || !privateKey || !urlEndpoint) {
+  console.warn('⚠️ ImageKit credentials missing. Uploads will fail.');
+}
+
 const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY || '',
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY || '',
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT || '',
+  publicKey,
+  privateKey,
+  urlEndpoint,
 });
 
 /**
@@ -37,6 +45,10 @@ export const uploadToImageKit = async (filePath, fileName, folder = 'receipts') 
     await fs.unlink(filePath).catch(() => {});
     throw error;
   }
+};
+
+export const getAuthParams = () => {
+  return imagekit.getAuthenticationParameters();
 };
 
 export default imagekit;

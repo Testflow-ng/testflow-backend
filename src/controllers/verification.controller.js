@@ -1,31 +1,31 @@
-import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import { VerificationRequest } from '../models/VerificationRequest.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { uploadToImageKit } from '../utils/imagekit.js';
+import imagekit, { getAuthParams } from '../utils/imagekit.js';
 import * as auditService from '../services/audit.service.js';
 
-/** Calculate MD5 hash of a file to detect duplicates */
-const getFileHash = async (filePath) => {
-  const fileBuffer = await fs.readFile(filePath);
-  return crypto.createHash('md5').update(fileBuffer).digest('hex');
-};
+export const getIKAuth = asyncHandler(async (req, res) => {
+  const auth = getAuthParams();
+  res.json(auth);
+});
 
 export const submitRequest = asyncHandler(async (req, res) => {
-  if (!req.file) {
-    throw new AppError(400, 'NO_FILE', 'Please upload a receipt image.');
+  const { receiptImage, receiptHash, transactionRef } = req.body;
+
+  if (!receiptImage) {
+    throw new AppError(400, 'NO_IMAGE', 'Please provide the uploaded receipt URL.');
   }
 
-  const { transactionRef } = req.body;
+  if (!receiptHash) {
+    throw new AppError(400, 'NO_HASH', 'Integrity check failed. Please try again.');
+  }
+
   const studentId = req.user._id;
-  const hash = await getFileHash(req.file.path);
 
   // 1. Anti-Fraud: Check if this EXACT file has been used before (Recycled Image)
-  const duplicateHash = await VerificationRequest.findOne({ receiptHash: hash });
+  const duplicateHash = await VerificationRequest.findOne({ receiptHash });
   if (duplicateHash) {
-    await fs.unlink(req.file.path).catch(() => {});
     throw new AppError(409, 'DUPLICATE_RECEIPT', 'This receipt has already been used by another student.');
   }
 
@@ -33,7 +33,6 @@ export const submitRequest = asyncHandler(async (req, res) => {
   if (transactionRef) {
     const duplicateRef = await VerificationRequest.findOne({ transactionRef: transactionRef.trim() });
     if (duplicateRef) {
-      await fs.unlink(req.file.path).catch(() => {});
       throw new AppError(409, 'DUPLICATE_REF', 'This transaction reference has already been claimed.');
     }
   }
@@ -41,21 +40,13 @@ export const submitRequest = asyncHandler(async (req, res) => {
   // Check if student already has a pending request
   const existing = await VerificationRequest.findOne({ student: studentId, status: 'pending' });
   if (existing) {
-    await fs.unlink(req.file.path).catch(() => {});
     throw new AppError(409, 'PENDING_REQUEST', 'You already have a verification request pending review.');
   }
 
-  // 3. Upload to ImageKit
-  const upload = await uploadToImageKit(
-    req.file.path,
-    `receipt-${studentId}-${Date.now()}`,
-    'receipts'
-  );
-
   const request = await VerificationRequest.create({
     student: studentId,
-    receiptImage: upload.url, // Full ImageKit URL
-    receiptHash: hash,
+    receiptImage, // Full ImageKit URL sent from client
+    receiptHash,
     transactionRef: transactionRef?.trim()
   });
 

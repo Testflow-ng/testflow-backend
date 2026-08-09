@@ -30,7 +30,8 @@ const upload = multer({
 router.use(authenticate);
 
 // Student routes
-router.post('/submit', upload.single('receipt'), verification.submitRequest);
+router.get('/auth', verification.getIKAuth);
+router.post('/submit', verification.submitRequest);
 router.get('/my-status', verification.getMyRequest);
 
 // Admin routes

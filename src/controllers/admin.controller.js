@@ -4,9 +4,11 @@ import { Question } from '../models/Question.js';
 import { ExamSession } from '../models/ExamSession.js';
 import { Settings } from '../models/Settings.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { PublicResponse } from '../models/PublicResponse.js';
 import * as auditService from '../services/audit.service.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import mongoose from 'mongoose';
 
 export const getDashboardStats = asyncHandler(async (req, res) => {
   const now = new Date();
@@ -535,4 +537,26 @@ export const bulkToggleQuestions = asyncHandler(async (req, res) => {
   });
 
   res.json({ message: `Successfully updated ${result.modifiedCount} questions.` });
+});
+
+export const getQuestionAnalytics = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const [totalResponses, optionStats, accuracyStats] = await Promise.all([
+    PublicResponse.countDocuments({ question: id }),
+    PublicResponse.aggregate([
+      { $match: { question: new mongoose.Types.ObjectId(id) } },
+      { $group: { _id: '$selectedOption', count: { $sum: 1 } } }
+    ]),
+    PublicResponse.aggregate([
+      { $match: { question: new mongoose.Types.ObjectId(id) } },
+      { $group: { _id: '$isCorrect', count: { $sum: 1 } } }
+    ])
+  ]);
+
+  res.json({
+    total: totalResponses,
+    options: optionStats,
+    accuracy: accuracyStats
+  });
 });

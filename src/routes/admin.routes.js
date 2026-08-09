@@ -18,6 +18,7 @@ router.patch('/students/:id/reset-password', admin.resetUserPassword);
 router.patch('/students/:id/toggle-status', admin.toggleUserStatus);
 router.post('/verify-utme', admin.verifyPostUtme);
 router.get('/post-utme/rankings', admin.getPostUtmeRankings);
+router.get('/questions/:id/analytics', admin.getQuestionAnalytics);
 router.get('/export-results', admin.exportResults);
 
 // Bulk Questions
