@@ -23,6 +23,10 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
+
+  IMAGEKIT_PUBLIC_KEY: z.string().optional(),
+  IMAGEKIT_PRIVATE_KEY: z.string().optional(),
+  IMAGEKIT_URL_ENDPOINT: z.string().url().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

@@ -6,8 +6,13 @@ import imagekit, { getAuthParams } from '../utils/imagekit.js';
 import * as auditService from '../services/audit.service.js';
 
 export const getIKAuth = asyncHandler(async (req, res) => {
-  const auth = getAuthParams();
-  res.json(auth);
+  try {
+    const auth = getAuthParams();
+    res.json(auth);
+  } catch (error) {
+    console.error('ImageKit Auth Params Error:', error);
+    throw new AppError(500, 'IMAGEKIT_AUTH_ERROR', 'Failed to generate cloud upload signature.');
+  }
 });
 
 export const submitRequest = asyncHandler(async (req, res) => {
