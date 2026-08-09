@@ -8,7 +8,10 @@ import * as auditService from '../services/audit.service.js';
 export const getIKAuth = asyncHandler(async (req, res) => {
   try {
     const auth = getAuthParams();
-    res.json(auth);
+    res.json({
+      ...auth,
+      publicKey: config.IMAGEKIT_PUBLIC_KEY
+    });
   } catch (error) {
     console.error('ImageKit Auth Params Error:', error);
     // Include specific error message for debugging
