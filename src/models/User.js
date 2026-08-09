@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema(
 
     // Post-UTME specific fields
     isPostUtmePaid: { type: Boolean, default: false },
+    postUtmeStatus: { type: String, enum: ['unpaid', 'pending', 'verified'], default: 'unpaid' },
     verificationCode: { type: String, unique: true, sparse: true, uppercase: true },
     hasMigrated: { type: Boolean, default: false },
     utmeData: {

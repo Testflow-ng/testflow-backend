@@ -59,6 +59,9 @@ export const submitRequest = asyncHandler(async (req, res) => {
     transactionRef: transactionRef?.trim()
   });
 
+  // Upgrade student status to pending in the database
+  await User.findByIdAndUpdate(studentId, { postUtmeStatus: 'pending' });
+
   await auditService.recordAction({
     actorId: studentId,
     action: 'SUBMIT_VERIFICATION',
@@ -118,7 +121,12 @@ export const processRequest = asyncHandler(async (req, res) => {
   await request.save();
 
   if (status === 'approved') {
-    await User.findByIdAndUpdate(request.student, { isPostUtmePaid: true });
+    await User.findByIdAndUpdate(request.student, {
+        isPostUtmePaid: true,
+        postUtmeStatus: 'verified'
+    });
+  } else {
+    await User.findByIdAndUpdate(request.student, { postUtmeStatus: 'unpaid' });
   }
 
   await auditService.recordAction({
