@@ -57,6 +57,15 @@ export const deleteSubject = async (id) => {
 };
 
 export const createSubject = async (data) => {
+  if (data.level === 'post-utme' && !data.code) {
+    // Auto-generate code for Post-UTME if missing
+    // e.g., "Use of English" -> "PUTME-ENG"
+    const slug = data.title
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 6);
+    data.code = `PUTME-${slug || Date.now().toString(36).toUpperCase()}`;
+  }
   return Subject.create(data);
 };
 
