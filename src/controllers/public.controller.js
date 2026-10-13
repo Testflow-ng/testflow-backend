@@ -118,3 +118,14 @@ export const generateSharePage = asyncHandler(async (req, res) => {
     </html>
   `);
 });
+
+/**
+ * Public Live CBT landing: title, host, instructions, live counts.
+ * No auth required so a shared link always resolves; join itself requires auth.
+ * Never exposes question content, answer keys, emails, or internal IDs.
+ */
+export const getLiveCbtLanding = asyncHandler(async (req, res) => {
+  const { getLanding } = await import('../services/liveCbt.service.js');
+  const landing = await getLanding(req.params.code);
+  res.json({ exam: landing });
+});

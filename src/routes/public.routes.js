@@ -5,6 +5,7 @@ const router = Router();
 
 router.get('/stats', publicController.getPublicStats);
 router.get('/config', publicController.getConfig);
+router.get('/live-cbt/:code', publicController.getLiveCbtLanding);
 
 // Shareable Questions
 router.get('/questions/:id', publicController.getPublicQuestion);

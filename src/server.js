@@ -1,12 +1,19 @@
+import { createServer } from 'node:http';
 import app from './app.js';
 import { config } from './config/env.js';
 import { connectDB, disconnectDB } from './config/db.js';
+import { attachLiveCbtSocket } from './sockets/liveCbt.socket.js';
 import { logger } from './utils/logger.js';
 
 const start = async () => {
   await connectDB();
 
-  const server = app.listen(config.PORT, () => {
+  // Plain HTTP server (instead of app.listen) so the Live CBT WebSocket
+  // gateway can share the same port via upgrade handling.
+  const server = createServer(app);
+  attachLiveCbtSocket(server);
+
+  server.listen(config.PORT, () => {
     logger.info(`TestFlow API listening on port ${config.PORT} [${config.NODE_ENV}]`);
   });
 
