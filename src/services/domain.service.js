@@ -90,3 +90,7 @@ export const isSubdomainAvailable = async (orgId, subdomain) => {
   }).lean();
   return !existing;
 };
+
+export const getOrgDomainByHostname = async (hostname) => {
+  return OrgDomain.findOne({ hostname }).lean();
+};
