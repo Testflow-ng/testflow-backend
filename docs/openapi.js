@@ -324,6 +324,40 @@ Object.assign(window.testflowOpenApi.paths, {
     },
   },
   [`${api}/admin/ads/jobs`]: { get: ads(T.admin, 'Recent scheduled-job runs (lifecycle, retention)', { admin: true, response: { type: 'object', properties: { runs: { type: 'array', items: { type: 'object' } } } } }) },
+Object.assign(window.testflowOpenApi.paths, {
+  // --- everybody ---
+  [`${api}/v1/everybody/organizations`]: {
+    post: { summary: 'Create a new organization (owner account)', security: false, body: { $ref: '#/components/schemas/OrgCreateInput' }, response: { $ref: '#/components/schemas/OrgView' }, created: true, errors: true },
+  },
+  [`${api}/v1/everybody/organizations`]: {
+    get: { summary: 'List organizations the authenticated user owns', security: false, response: { $ref: '#/components/schemas/OrgsList' } },
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}`]: {
+    get: { summary: 'Get one organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/OrgView' } },
+    patch: { summary: 'Patch organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/OrgUpdateInput' }, response: { $ref: '#/components/schemas/OrgView' }, errors: true },
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/members`]: {
+    get: { summary: 'List organization members', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/MembersList' } },
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/invitations`]: {
+    post: { summary: 'Invite a member to the organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/OrgInviteInput' }, response: { $ref: '#/components/schemas/InviteResponse' }, created: true, errors: true },
+  },
+  [`${api}/v1/everybody/invitations/accept`]: {
+    post: { summary: 'Accept an organization invitation', security: false, body: { $ref: '#/components/schemas/AcceptInviteInput' }, response: { $ref: '#/components/schemas/MemberView' }, created: true, errors: true },
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions`]: {
+    post: { summary: 'Create a subscription (pro/studio)', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/SubscriptionCreateInput' }, response: { $ref: '#/components/schemas/SubscriptionView' }, created: true, errors: true },
+    get: { summary: 'List subscriptions for the organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/SubsList' } },
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}`]: {
+    get: { summary: 'Get one subscription', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/SubscriptionView' } },
+    patch: { summary: 'Cancel or upgrade/downgrade subscription', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/SubscriptionUpdateInput' }, response: { $ref: '#/components/schemas/SubscriptionView' }, errors: true },
+    post: { summary: 'Checkout for a subscription', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { type: 'object', properties: { 'Idempotency-Key': { type: 'string', description: 'Reuse the same key when retrying' } } }, response: { $ref: '#/components/schemas/CheckoutResponse' }, errors: true },
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}/verify`]: {
+    get: { summary: 'Verify subscription payment', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'reference', in: 'query', required: false, schema: { type: 'string' } }], response: { $ref: '#/components/schemas/SubscriptionView' } },
+  },
+});
 });
 
 Object.assign(window.testflowOpenApi.components.responses, {
@@ -371,6 +405,7 @@ if (userRole?.enum && !userRole.enum.includes('advertiser')) userRole.enum.push(
 Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
   if (Object.values(methods)[0]?.tags) return; // explicitly tagged (ads endpoints)
   if (/\/auth\/(memberships|switch-product|oauth\/)/.test(path)) { Object.values(methods).forEach((method) => { method.tags = ['Identity']; }); return; }
+  if (path.includes('/v1/everybody/organizations') || path.includes('/v1/everybody/invitations') || path.includes('/v1/everybody/subscriptions')) { Object.values(methods).forEach((method) => { method.tags = ['Everybody']; }); return; }
   const tag = path === '/health' ? 'Health'
     : path.includes('/public/') ? 'Public'
       : path.includes('/auth/') ? 'Authentication'
