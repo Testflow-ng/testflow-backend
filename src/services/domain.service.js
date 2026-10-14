@@ -76,3 +76,17 @@ export const listOrgDomains = async (orgId) => {
     .sort({ createdAt: -1 })
     .lean();
 };
+
+export const isSubdomainAvailable = async (orgId, subdomain) => {
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(subdomain)) return false;
+  if (subdomain.length < 3 || subdomain.length > 30) return false;
+  if (subdomain.includes('--')) return false;
+  const reserved = ['www', 'api', 'admin', 'ads', 'app', 'mail', 'cdn', 'static', 'everybody', 'status', 'support', 'billing', 'login'];
+  if (reserved.includes(subdomain)) return false;
+  const existing = await OrgDomain.findOne({
+    organization: orgId,
+    hostname: subdomain + '.testflow.com.ng',
+    status: 'active',
+  }).lean();
+  return !existing;
+};
