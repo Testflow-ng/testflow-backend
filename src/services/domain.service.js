@@ -77,6 +77,10 @@ export const listOrgDomains = async (orgId) => {
     .lean();
 };
 
+export const countOrgDomains = async (orgId) => {
+  return OrgDomain.countDocuments({ organization: orgId });
+};
+
 export const isSubdomainAvailable = async (orgId, subdomain) => {
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(subdomain)) return false;
   if (subdomain.length < 3 || subdomain.length > 30) return false;
