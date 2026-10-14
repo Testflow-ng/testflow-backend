@@ -12,6 +12,7 @@ import adsRoutes from './ads.routes.js';
 import adminAdsRoutes from './adminAds.routes.js';
 import everybodyRoutes from './everybody.routes.js';
 import everybodySubscriptionRoutes from './everybody.subscription.routes.js';
+import siteRoutes from './site.routes.js';
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.use('/admin/ads', adminAdsRoutes); // before '/admin' so it is matched fi
 router.use('/admin', adminRoutes);
 router.use('/v1/everybody', everybodyRoutes);
 router.use('/v1/everybody/subscriptions', everybodySubscriptionRoutes);
+router.use('/v1/everybody/site', siteRoutes);
 
 export default router;
