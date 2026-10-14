@@ -45,11 +45,17 @@ const auditLogSchema = new mongoose.Schema(
         'PASSWORD_CHANGE',
         'OAUTH_CODE_ISSUED',
         'OAUTH_TOKEN_ISSUED',
-        'AD_CAMPAIGN_PURGED'
+        'AD_CAMPAIGN_PURGED',
+        'ORG_CREATE',
+        'ORG_UPDATE',
+        'ORG_MEMBER_ADD',
+        'ORG_MEMBER_UPDATE',
+        'ORG_MEMBER_REMOVE',
+        'ORG_INVITE'
       ]
     },
     targetId: { type: mongoose.Schema.Types.ObjectId }, // ID of the user/subject/question affected
-    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment'] },
+    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization'] },
     metadata: { type: mongoose.Schema.Types.Mixed }, // Any additional info (e.g. subject code)
     ip: { type: String },
     userAgent: { type: String }
