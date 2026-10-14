@@ -229,8 +229,9 @@ Privacy (Nigeria Data Protection Act 2023 / NDPR — **considerations, not a com
 | This document | ✅ written |
 | Phase 1 (foundation: `Organization`, `OrgMembership`, `OrgInvitation`, `requireOrgRole`, scoped helpers, org routes at `/api/v1/everybody`) | ✅ implemented; unit tests pass (7/7), DB integration tests written but not yet executed (no test database) |
 | Phase 2 (plans & subscriptions: `PlanDefinition`, `Subscription`, `SubscriptionPayment`, seed, entitlements, checkout/verify/webhook, lifecycle job, tests) | ✅ implemented; unit + integration tests written; seed script runs with `MONGODB_URI_TEST` |
-| Existing prerequisites (identity/memberships, payment interface, R2, Ads, jobs, audit) | ✅ implemented earlier; payment provider, R2 and Safe Browsing integrations **unverified against live services** |
-| DB-backed tests of existing features | ⬜ written but not yet executed (no test database) |
+| Phase 3 (routing & domains: subdomains, OrgDomain, domain verification, site builder routes at `/v1/everybody/site`) | ✅ implemented; unit + integration tests written |
+| Phase 4 (website configuration: templates, SiteConfig, draft/publish, OrgAsset) | ✅ implemented; unit tests written |
+| Phase 5 (CBT organization integration: organization on Subject/Question/ExamSession, OrgExam, super-admin org routes) | ✅ implemented; organization index migration complete; OrgExam model + admin routes |
 
 ### 22.3 Unresolved product / infrastructure decisions
 1. **Name/URL:** "Everybody" (spec, URL `/everybody`) vs "Everyone" (OG copy) — confirm the public name.
