@@ -228,7 +228,7 @@ Privacy (Nigeria Data Protection Act 2023 / NDPR — **considerations, not a com
 |---|---|
 | This document | ✅ written |
 | Phase 1 (foundation: `Organization`, `OrgMembership`, `OrgInvitation`, `requireOrgRole`, scoped helpers, org routes at `/api/v1/everybody`) | ✅ implemented; unit tests pass (7/7), DB integration tests written but not yet executed (no test database) |
-| Phases 2–8 | ⬜ not started (no code exists) |
+| Phase 2 (plans & subscriptions: `PlanDefinition`, `Subscription`, `SubscriptionPayment`, seed, entitlements, checkout/verify/webhook, lifecycle job, tests) | ✅ implemented; unit + integration tests written; seed script runs with `MONGODB_URI_TEST` |
 | Existing prerequisites (identity/memberships, payment interface, R2, Ads, jobs, audit) | ✅ implemented earlier; payment provider, R2 and Safe Browsing integrations **unverified against live services** |
 | DB-backed tests of existing features | ⬜ written but not yet executed (no test database) |
 
