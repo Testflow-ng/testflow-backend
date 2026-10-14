@@ -13,6 +13,7 @@ const orgExamSchema = new mongoose.Schema(
     availableUntil: { type: Date, required: true },
     access: { type: String, enum: ['enrolled', 'assigned', 'code'], default: 'enrolled' },
     accessCode: { type: String, trim: true, maxlength: 20 },
+    accessCode: { type: String, trim: true, maxlength: 20 },
     attemptsAllowed: { type: Number, default: 1 },
     shuffleQuestions: { type: Boolean, default: true },
     shuffleOptions: { type: Boolean, default: false },
