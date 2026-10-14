@@ -5,7 +5,8 @@ import mongoose from 'mongoose';
  */
 const auditLogSchema = new mongoose.Schema(
   {
-    actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    // Null actor = system job (e.g. scheduled retention purge).
+    actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     action: {
       type: String,
       required: true,
@@ -23,11 +24,32 @@ const auditLogSchema = new mongoose.Schema(
         'BULK_DELETE_QUESTIONS',
         'BULK_TOGGLE_QUESTIONS',
         'CREATE_SUBJECT',
-        'DELETE_SUBJECT'
+        'DELETE_SUBJECT',
+        'AD_APPROVE',
+        'AD_REJECT',
+        'AD_SUSPEND',
+        'AD_REINSTATE',
+        'AD_REMOVE',
+        'AD_SETTINGS_UPDATE',
+        'AD_PAYMENT_VERIFIED',
+        'AD_PAYMENT_REFUND',
+        'AD_TRAINING_EXPORT',
+        'AUTH_REGISTER',
+        'AUTH_LOGIN',
+        'AUTH_LOGIN_FAILED',
+        'AUTH_LOGOUT',
+        'MEMBERSHIP_ADD',
+        'PRODUCT_SWITCH',
+        'PASSWORD_RESET_REQUEST',
+        'PASSWORD_RESET',
+        'PASSWORD_CHANGE',
+        'OAUTH_CODE_ISSUED',
+        'OAUTH_TOKEN_ISSUED',
+        'AD_CAMPAIGN_PURGED'
       ]
     },
     targetId: { type: mongoose.Schema.Types.ObjectId }, // ID of the user/subject/question affected
-    targetType: { type: String, enum: ['User', 'Subject', 'Question'] },
+    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment'] },
     metadata: { type: mongoose.Schema.Types.Mixed }, // Any additional info (e.g. subject code)
     ip: { type: String },
     userAgent: { type: String }

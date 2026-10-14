@@ -2,22 +2,18 @@ import { VerificationRequest } from '../models/VerificationRequest.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import imagekit, { getAuthParams } from '../utils/imagekit.js';
-import { config } from '../config/env.js';
+import crypto from 'node:crypto';
+import { presignPut } from '../utils/r2.js';
 import * as auditService from '../services/audit.service.js';
 
+/**
+ * Presigned direct-to-R2 upload for a payment receipt (replaces the old
+ * previous third-party auth params). The client PUTs the file to `uploadUrl` with the same
+ * Content-Type, then submits `publicUrl` to POST /verifications/submit.
+ */
 export const getIKAuth = asyncHandler(async (req, res) => {
-  try {
-    const auth = getAuthParams();
-    res.json({
-      ...auth,
-      publicKey: config.IMAGEKIT_PUBLIC_KEY
-    });
-  } catch (error) {
-    console.error('ImageKit Auth Params Error:', error);
-    // Include specific error message for debugging
-    throw new AppError(500, 'IMAGEKIT_AUTH_ERROR', `Failed to generate cloud upload signature: ${error.message || 'Unknown error'}`);
-  }
+  const key = `receipts/${req.user._id}/${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+  res.json(presignPut(key, { expiresSec: 300 }));
 });
 
 export const submitRequest = asyncHandler(async (req, res) => {
@@ -55,7 +51,7 @@ export const submitRequest = asyncHandler(async (req, res) => {
 
   const request = await VerificationRequest.create({
     student: studentId,
-    receiptImage, // Full ImageKit URL sent from client
+    receiptImage, // Public R2 URL sent from client
     receiptHash,
     transactionRef: transactionRef?.trim()
   });

@@ -24,9 +24,28 @@ const schema = z.object({
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
 
-  IMAGEKIT_PUBLIC_KEY: z.string().min(1, 'IMAGEKIT_PUBLIC_KEY is required'),
-  IMAGEKIT_PRIVATE_KEY: z.string().min(1, 'IMAGEKIT_PRIVATE_KEY is required'),
-  IMAGEKIT_URL_ENDPOINT: z.string().url('IMAGEKIT_URL_ENDPOINT must be a valid URL'),
+  GOOGLE_SAFE_BROWSING_KEY: z.string().optional(),
+  // --- Centralized identity ---
+  // Extra browser origins allowed to call the API (comma-separated), e.g. https://ads.testflow.com.ng
+  ALLOWED_ORIGINS: z.string().optional(),
+  // CSRF double-submit token: off | log (warn only) | enforce. Origin checking is always on.
+  CSRF_TOKEN_MODE: z.enum(['off', 'log', 'enforce']).default('log'),
+  // Other-domain clients for the code+PKCE exchange: JSON [{"id":"x","redirectUris":["https://..."]}]
+  AUTH_CLIENTS: z.string().optional(),
+  // --- Ads Manager (testflow.com.ng/ads) ---
+  ADS_CLIENT_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+  ADS_JOBS_ENABLED: z.enum(['true', 'false']).default('true'),
+  ADS_EVENT_SECRET: z.string().min(32).optional(),
+  PAYMENT_PROVIDER: z.enum(['paystack', 'none']).default('paystack'),
+  PAYSTACK_SECRET_KEY: z.string().optional(),
+  ADS_PAYMENT_CALLBACK_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+
+  // Cloudflare R2 object storage (S3-compatible). Optional at boot; required to upload files.
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET: z.string().optional(),
+  R2_PUBLIC_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
 });
 
 const parsed = schema.safeParse(process.env);

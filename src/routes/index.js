@@ -8,6 +8,8 @@ import liveCbtRoutes from './liveCbt.routes.js';
 import verificationRoutes from './verification.routes.js';
 import adminRoutes from './admin.routes.js';
 import publicRoutes from './public.routes.js';
+import adsRoutes from './ads.routes.js';
+import adminAdsRoutes from './adminAds.routes.js';
 
 const router = Router();
 
@@ -19,6 +21,8 @@ router.use('/exam-sessions', examSessionRoutes);
 router.use('/post-utme', postUtmeRoutes);
 router.use('/live-cbt', liveCbtRoutes);
 router.use('/verifications', verificationRoutes);
+router.use('/ads', adsRoutes);
+router.use('/admin/ads', adminAdsRoutes); // before '/admin' so it is matched first
 router.use('/admin', adminRoutes);
 
 export default router;

@@ -1,4 +1,5 @@
 import { User } from '../models/User.js';
+import { studentQuery } from '../utils/identity.js';
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
 import { ExamSession } from '../models/ExamSession.js';
@@ -42,14 +43,14 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     newStudentsMonth,
     newStudentsPrevMonth
   ] = await Promise.all([
-    User.countDocuments({ role: 'student' }),
+    User.countDocuments(studentQuery()),
     User.countDocuments({ role: 'admin' }),
-    User.countDocuments({ role: 'student', isPostUtmePaid: true }),
+    User.countDocuments(studentQuery({ isPostUtmePaid: true })),
     Subject.countDocuments(),
     Question.countDocuments(),
     ExamSession.countDocuments(),
     ExamSession.countDocuments({ status: 'submitted' }),
-    User.find({ role: 'student' }).sort({ createdAt: -1 }).limit(5).lean(),
+    User.find(studentQuery()).sort({ createdAt: -1 }).limit(5).lean(),
     // Sessions started in the last hour and still in progress
     ExamSession.countDocuments({
       status: 'in_progress',
@@ -67,17 +68,17 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
     Subject.aggregate([
       { $group: { _id: '$level', count: { $sum: 1 } } }
     ]),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: weekAgoStart } }),
-    User.countDocuments({ role: 'student', lastActiveAt: { $gt: monthAgoStart } }),
+    User.countDocuments(studentQuery({ lastActiveAt: { $gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } })),
+    User.countDocuments(studentQuery({ lastActiveAt: { $gt: weekAgoStart } })),
+    User.countDocuments(studentQuery({ lastActiveAt: { $gt: monthAgoStart } })),
 
     // Growth metrics
-    User.countDocuments({ role: 'student', createdAt: { $gte: todayStart } }),
-    User.countDocuments({ role: 'student', createdAt: { $gte: yesterdayStart, $lt: todayStart } }),
-    User.countDocuments({ role: 'student', createdAt: { $gte: weekAgoStart } }),
-    User.countDocuments({ role: 'student', createdAt: { $gte: prevWeekAgoStart, $lt: weekAgoStart } }),
-    User.countDocuments({ role: 'student', createdAt: { $gte: monthAgoStart } }),
-    User.countDocuments({ role: 'student', createdAt: { $gte: prevMonthAgoStart, $lt: monthAgoStart } })
+    User.countDocuments(studentQuery({ createdAt: { $gte: todayStart } })),
+    User.countDocuments(studentQuery({ createdAt: { $gte: yesterdayStart, $lt: todayStart } })),
+    User.countDocuments(studentQuery({ createdAt: { $gte: weekAgoStart } })),
+    User.countDocuments(studentQuery({ createdAt: { $gte: prevWeekAgoStart, $lt: weekAgoStart } })),
+    User.countDocuments(studentQuery({ createdAt: { $gte: monthAgoStart } })),
+    User.countDocuments(studentQuery({ createdAt: { $gte: prevMonthAgoStart, $lt: monthAgoStart } }))
   ]);
 
   const calculateGrowth = (current, previous) => {
@@ -131,7 +132,7 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
 
 export const listStudents = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, search } = req.query;
-  const filter = { role: 'student' };
+  const filter = studentQuery();
 
   if (search) {
     filter.$or = [
@@ -170,6 +171,7 @@ export const createStudent = asyncHandler(async (req, res) => {
     matricNumber,
     passwordHash: password,
     role: 'student',
+    memberships: [{ product: 'student', role: 'student' }],
     isEmailVerified: true
   });
 
@@ -426,7 +428,7 @@ export const getPostUtmeRankings = asyncHandler(async (req, res) => {
   const { limit = 100 } = req.query;
 
   const rankings = await User.aggregate([
-    { $match: { role: 'student' } },
+    { $match: studentQuery() },
     {
       $lookup: {
         from: 'examsessions',

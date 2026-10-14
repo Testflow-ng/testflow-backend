@@ -34,17 +34,27 @@ export const registerSchema = z.object({
       email,
       password,
       confirmPassword: z.string(),
+      // Centralized identity: which product the account is created for (default: student).
+      product: z.enum(['student', 'ads']).default('student'),
+      profile: z.object({
+        businessName: z.string().trim().min(2).max(120).optional(),
+        contactPhone: z.string().trim().max(20).optional(),
+      }).strict().optional(),
     })
     .strict()
     .refine((data) => data.password === data.confirmPassword, {
       message: 'Passwords do not match',
       path: ['confirmPassword'],
+    })
+    .refine((data) => data.product !== 'ads' || !!data.profile?.businessName, {
+      message: 'Business name is required for an Ads account',
+      path: ['profile', 'businessName'],
     }),
 });
 
 export const loginSchema = z.object({
   // Login only checks presence/shape; never leak the password policy here.
-  body: z.object({ email, password: z.string().min(1).max(72) }).strict(),
+  body: z.object({ email, password: z.string().min(1).max(72), product: z.enum(['student', 'ads']).optional() }).strict(),
 });
 
 export const emailOnlySchema = z.object({

@@ -1,6 +1,7 @@
 import { config } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { logger } from '../utils/logger.js';
+import { isAllowedOrigin } from '../utils/origins.js';
 
 export const notFound = (req, _res, next) => {
   next(new AppError(404, 'NOT_FOUND', `Route not found: ${req.method} ${req.originalUrl}`));
@@ -11,8 +12,7 @@ export const notFound = (req, _res, next) => {
 export const errorHandler = (err, req, res, _next) => {
   // Force CORS headers onto error responses so the frontend can actually read the error message
   const origin = req.headers.origin;
-  const allowed = config.CLIENT_URL.replace(/\/$/, '');
-  if (origin === allowed) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
@@ -48,6 +48,7 @@ export const errorHandler = (err, req, res, _next) => {
   }
 
   const body = { error: { code, message, details: err.details } };
+  if (err.isOperational && err.fields) body.error.fields = err.fields;
   if (!config.isProduction && statusCode >= 500) {
     body.error.stack = err.stack;
   }

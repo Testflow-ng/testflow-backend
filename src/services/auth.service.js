@@ -8,7 +8,7 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 /** Generate a short, readable alphanumeric code for manual Post-UTME verification. */
-const generateVerificationCode = () => {
+export const generateVerificationCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No O, 0, I, 1 to avoid confusion
   let code = 'UTME-';
   for (let i = 0; i < 6; i++) {
@@ -111,8 +111,10 @@ export const forgotPassword = async (email) => {
     user.passwordResetTokenHash = hashToken(token);
     user.passwordResetExpires = new Date(Date.now() + RESET_TTL_MS);
     await user.save();
-    await sendPasswordResetEmail(user, token);
+    // Not awaited: mail latency must not reveal whether the account exists.
+    sendPasswordResetEmail(user, token).catch((e) => console.error('Password reset email failed:', e.message));
   }
+  return user ?? null;
 };
 
 export const resetPassword = async (rawToken, password) => {

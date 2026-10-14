@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config/env.js';
 import routes from './routes/index.js';
 import { notFound, errorHandler } from './middleware/error.js';
+import { csrfProtect } from './middleware/csrf.js';
+import { isAllowedOrigin } from './utils/origins.js';
 
 /**
  * Build the Express application. Pure and side-effect free (no DB connection,
@@ -24,8 +26,7 @@ app.disable('x-powered-by');
 app.use(
   cors({
     origin: (origin, callback) => {
-      const allowed = config.CLIENT_URL.replace(/\/$/, ''); // Remove trailing slash for comparison
-      if (!origin || origin === allowed) {
+      if (!origin || isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error('CORS blocked: Origin mismatch'));
@@ -33,13 +34,21 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-CSRF-Token', 'Idempotency-Key'],
   }),
 );
 
 app.use(helmet());
 app.use(compression());
-app.use(express.json({ limit: '5mb' }));
+app.use(
+  express.json({
+    limit: '5mb',
+    // The payment webhook signature is computed over the exact raw bytes.
+    verify: (req, _res, buf) => {
+      if (req.originalUrl.startsWith('/api/ads/payments/webhook')) req.rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(cookieParser());
 
@@ -54,7 +63,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-app.use('/api', routes);
+app.use('/api', csrfProtect, routes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -11,7 +11,19 @@ const userSchema = new mongoose.Schema(
     // Students only; sparse+unique so admins (no matric) don't collide on null.
     matricNumber: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
-    role: { type: String, enum: ['student', 'admin', 'super_admin'], default: 'student' },
+    // Global account level. Product access is decided by `memberships`, not by this field.
+    // ('advertiser' is a legacy value that the memberships migration converts to 'student'.)
+    role: { type: String, enum: ['student', 'advertiser', 'admin', 'super_admin'], default: 'student' },
+    // One entry per product this person uses (see utils/identity.js).
+    memberships: {
+      type: [{
+        _id: false,
+        product: { type: String, enum: ['student', 'ads'], required: true },
+        role: { type: String, required: true },
+        joinedAt: { type: Date, default: Date.now },
+      }],
+      default: [],
+    },
 
     // Post-UTME specific fields
     isPostUtmePaid: { type: Boolean, default: false },
@@ -50,6 +62,7 @@ const userSchema = new mongoose.Schema(
 // Supports admin roster queries (filter by role, then department/level).
 userSchema.index({ role: 1, department: 1, level: 1 });
 userSchema.index({ role: 1, createdAt: -1 });
+userSchema.index({ 'memberships.product': 1, createdAt: -1 });
 userSchema.index({ role: 1, isPostUtmePaid: 1 });
 
 userSchema.pre('save', async function hashPassword() {

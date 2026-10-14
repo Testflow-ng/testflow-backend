@@ -3,6 +3,7 @@ import app from './app.js';
 import { config } from './config/env.js';
 import { connectDB, disconnectDB } from './config/db.js';
 import { attachLiveCbtSocket } from './sockets/liveCbt.socket.js';
+import { startAdsScheduler, stopAdsScheduler } from './jobs/scheduler.js';
 import { logger } from './utils/logger.js';
 
 const start = async () => {
@@ -13,12 +14,15 @@ const start = async () => {
   const server = createServer(app);
   attachLiveCbtSocket(server);
 
+  startAdsScheduler();
+
   server.listen(config.PORT, () => {
     logger.info(`TestFlow API listening on port ${config.PORT} [${config.NODE_ENV}]`);
   });
 
   const shutdown = (signal) => {
     logger.warn(`${signal} received, shutting down gracefully`);
+    stopAdsScheduler();
     server.close(async () => {
       await disconnectDB();
       process.exit(0);

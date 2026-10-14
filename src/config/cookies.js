@@ -5,6 +5,8 @@ const REFRESH_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export const ACCESS_COOKIE = 'tf_access';
 export const REFRESH_COOKIE = 'tf_refresh';
+// Readable by JS on purpose (double-submit CSRF token); carries no authority by itself.
+export const CSRF_COOKIE = 'tf_csrf';
 // Refresh cookie is scoped to the refresh route so it is not sent on every request.
 export const REFRESH_PATH = '/api/auth/refresh';
 
@@ -26,3 +28,5 @@ export const refreshCookieOptions = () => ({
 });
 
 export const clearCookieOptions = (path) => ({ ...baseOptions(), path });
+
+export const csrfCookieOptions = () => ({ ...baseOptions(), httpOnly: false, path: '/', maxAge: REFRESH_MAX_AGE });
