@@ -10,6 +10,7 @@ import adminRoutes from './admin.routes.js';
 import publicRoutes from './public.routes.js';
 import adsRoutes from './ads.routes.js';
 import adminAdsRoutes from './adminAds.routes.js';
+import everybodyRoutes from './everybody.routes.js';
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.use('/verifications', verificationRoutes);
 router.use('/ads', adsRoutes);
 router.use('/admin/ads', adminAdsRoutes); // before '/admin' so it is matched first
 router.use('/admin', adminRoutes);
+router.use('/v1/everybody', everybodyRoutes);
 
 export default router;
