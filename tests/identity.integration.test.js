@@ -88,6 +88,31 @@ describe('Centralized identity (integration)', { skip }, () => {
     assert.equal(noBiz.status, 422);
   });
 
+  it('everybody: organizationName is required; membership, profile, login gate, join and switch all work', async () => {
+    const noName = await client().call('POST', '/auth/register', { body: { fullName: 'Org Owner', email: `o${uniq()}@t.test`, password: pw, confirmPassword: pw, product: 'everybody' } });
+    assert.equal(noName.status, 422);
+    assert.ok(noName.json.error.fields['profile.organizationName']);
+    const { c, email, reg } = await account('everybody', { profile: { organizationName: 'Advance Academy' } });
+    assert.equal(reg.status, 201);
+    assert.deepEqual(reg.json.memberships.map((x) => [x.product, x.role]), [['everybody', 'organizer']]);
+    const ok = await signIn(c, email, 'everybody');
+    assert.equal(ok.status, 200); assert.equal(ok.json.activeProduct, 'everybody');
+    assert.equal(ok.json.profiles.everybody.organizationName, 'Advance Academy');
+    assert.equal((await signIn(c, email, 'student')).json.error.code, 'NO_MEMBERSHIP');
+    // a student account has no everybody membership
+    const stud = await account('student');
+    const denied = await signIn(stud.c, stud.email, 'everybody');
+    assert.equal(denied.status, 403); assert.deepEqual(denied.json.error.details, { product: 'everybody', canJoin: true });
+    await signIn(stud.c, stud.email);
+    assert.equal((await stud.c.call('POST', '/auth/memberships', { body: { product: 'everybody' } })).status, 422);
+    const joined = await stud.c.call('POST', '/auth/memberships', { body: { product: 'everybody', profile: { organizationName: 'Joined Org' } } });
+    assert.equal(joined.status, 201);
+    assert.deepEqual(joined.json.memberships.map((x) => x.product).sort(), ['everybody', 'student']);
+    assert.equal(joined.json.profiles.everybody.organizationName, 'Joined Org');
+    assert.equal((await stud.c.call('POST', '/auth/switch-product', { body: { product: 'everybody' } })).json.activeProduct, 'everybody');
+    assert.equal((await stud.c.call('GET', '/auth/me')).json.activeProduct, 'everybody');
+  });
+
   it('login: sets session + CSRF cookies, returns memberships/profiles; wrong product → 403 NO_MEMBERSHIP (no session)', async () => {
     const { c, email } = await account('student');
     const denied = await signIn(c, email, 'ads');

@@ -6,6 +6,7 @@ const email = z.string().trim().toLowerCase().email().max(254);
 const product = z.enum(PRODUCT_KEYS);
 export const profileInput = z.object({
   businessName: z.string().trim().min(2).max(120).optional(),
+  organizationName: z.string().trim().min(2).max(120).optional(),
   contactPhone: z.string().trim().max(20).optional(),
 }).strict();
 

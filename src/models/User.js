@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema(
     memberships: {
       type: [{
         _id: false,
-        product: { type: String, enum: ['student', 'ads'], required: true },
+        product: { type: String, enum: ['student', 'ads', 'everybody'], required: true },
         role: { type: String, required: true },
         joinedAt: { type: Date, default: Date.now },
       }],

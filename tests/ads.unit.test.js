@@ -324,7 +324,11 @@ describe('centralized identity helpers', async () => {
     assert.equal(id.defaultActiveProduct({ role: 'admin' }), null);
   });
   it('only known products are joinable', () => {
-    assert.ok(id.isJoinable('ads') && id.isJoinable('student'));
+    assert.ok(id.isJoinable('ads') && id.isJoinable('student') && id.isJoinable('everybody'));
+    const u = { role: 'student', memberships: [{ product: 'everybody', role: 'organizer' }] };
+    assert.ok(id.hasMembership(u, 'everybody', 'organizer'));
+    assert.equal(id.hasMembership(u, 'student'), false);
+    assert.equal(id.defaultActiveProduct(u), 'everybody');
     assert.equal(id.isJoinable('crypto'), false);
     assert.equal(id.isProduct('__proto__'), false);
   });

@@ -7,6 +7,7 @@
 export const PRODUCTS = Object.freeze({
   student: { roles: ['student'], defaultRole: 'student', label: 'TestFlow CBT' },
   ads: { roles: ['advertiser'], defaultRole: 'advertiser', label: 'TestFlow Ads' },
+  everybody: { roles: ['organizer'], defaultRole: 'organizer', label: 'Testflow for Everyone' },
   // future products: add an entry here (and a profile summary in identity.service)
 });
 export const PRODUCT_KEYS = Object.freeze(Object.keys(PRODUCTS));

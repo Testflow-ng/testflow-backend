@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { User } from '../models/User.js';
 import { AdvertiserProfile } from '../models/AdvertiserProfile.js';
+import { EverybodyProfile } from '../models/EverybodyProfile.js';
 import { AppError } from '../utils/AppError.js';
 import {
   PRODUCTS, effectiveMemberships, hasMembership, defaultActiveProduct, isJoinable, isProduct,
@@ -22,6 +23,9 @@ export const profilesFor = async (user) => {
         username: user.username ?? null, level: user.level ?? null, department: user.department ?? null,
         streakCount: user.streakCount ?? 0, hasMigrated: !!user.hasMigrated,
       };
+    } else if (m.product === 'everybody') {
+      const p = await EverybodyProfile.findOne({ user: user._id }).select('organizationName').lean();
+      out.everybody = { organizationName: p?.organizationName ?? null };
     } else if (m.product === 'ads') {
       const p = await AdvertiserProfile.findOne({ user: user._id }).select('businessName contactPhone').lean();
       out.ads = { businessName: p?.businessName ?? null, contactPhone: p?.contactPhone ?? null };
@@ -44,6 +48,14 @@ const noMembership = (product) => {
   return err;
 };
 
+const requireOrganizationName = (profile) => {
+  if (!profile?.organizationName?.trim()) {
+    const err = new AppError(422, 'VALIDATION_ERROR', 'Organization name is required.');
+    err.fields = { 'profile.organizationName': 'Organization name is required.' };
+    throw err;
+  }
+};
+
 const requireAdsProfile = (profile) => {
   if (!profile?.businessName?.trim()) {
     const err = new AppError(422, 'VALIDATION_ERROR', 'Business name is required for an Ads account.');
@@ -55,6 +67,7 @@ const requireAdsProfile = (profile) => {
 export const registerAccount = async ({ product = 'student', fullName, email, password, profile }, req) => {
   if (!isProduct(product)) throw new AppError(422, 'VALIDATION_ERROR', 'Unknown product.');
   if (product === 'ads') requireAdsProfile(profile);
+  if (product === 'everybody') requireOrganizationName(profile);
 
   let user;
   try {
@@ -74,6 +87,14 @@ export const registerAccount = async ({ product = 'student', fullName, email, pa
   if (product === 'ads') {
     try {
       await AdvertiserProfile.create({ user: user._id, businessName: profile.businessName.trim(), contactPhone: profile.contactPhone });
+    } catch (e) {
+      await User.deleteOne({ _id: user._id });
+      throw e;
+    }
+  }
+  if (product === 'everybody') {
+    try {
+      await EverybodyProfile.create({ user: user._id, organizationName: profile.organizationName.trim() });
     } catch (e) {
       await User.deleteOne({ _id: user._id });
       throw e;
@@ -107,6 +128,7 @@ export const addMembership = async (user, { product, profile }, req) => {
   if (!isJoinable(product)) throw new AppError(422, 'VALIDATION_ERROR', 'Unknown product.');
   if (hasMembership(user, product)) throw new AppError(409, 'ALREADY_MEMBER', 'This account already has access to that product.');
   if (product === 'ads') requireAdsProfile(profile);
+  if (product === 'everybody') requireOrganizationName(profile);
 
   const entry = { product, role: PRODUCTS[product].defaultRole, joinedAt: new Date() };
   const stored = user.memberships ?? [];
@@ -119,6 +141,11 @@ export const addMembership = async (user, { product, profile }, req) => {
   if (product === 'ads') {
     await AdvertiserProfile.updateOne(
       { user: user._id }, { $setOnInsert: { businessName: profile.businessName.trim(), contactPhone: profile.contactPhone } }, { upsert: true },
+    );
+  }
+  if (product === 'everybody') {
+    await EverybodyProfile.updateOne(
+      { user: user._id }, { $setOnInsert: { organizationName: profile.organizationName.trim() } }, { upsert: true },
     );
   }
   if (product === 'student') {
