@@ -8,6 +8,10 @@ export const listTemplates = asyncHandler(async (req, res) => {
   res.json({ templates: ['classic', 'modern', 'minimal'] });
 });
 
+export const listAvailableTemplates = asyncHandler(async (req, res) => {
+  res.json({ templates: ['classic', 'modern', 'minimal'] });
+});
+
 export const get = asyncHandler(async (req, res) => {
   const { organizationId } = req.params;
   let config = await SiteConfig.findOne({ organization: organizationId }).lean();
