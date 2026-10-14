@@ -13,6 +13,7 @@ import adminAdsRoutes from './adminAds.routes.js';
 import everybodyRoutes from './everybody.routes.js';
 import everybodySubscriptionRoutes from './everybody.subscription.routes.js';
 import siteRoutes from './site.routes.js';
+import adminOrgRoutes from './adminOrg.routes.js';
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use('/admin', adminRoutes);
 router.use('/v1/everybody', everybodyRoutes);
 router.use('/v1/everybody/subscriptions', everybodySubscriptionRoutes);
 router.use('/v1/everybody/site', siteRoutes);
+router.use('/v1/admin/everybody', adminOrgRoutes);
 
 export default router;
