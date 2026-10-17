@@ -55,10 +55,19 @@ const postUtmeSessionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// One active Post-UTME session at a time per student
+// One active Post-UTME session at a time per student.
+//
+// Named explicitly: the `student` field already carries a plain index (history and stats
+// queries filter on status, which a *partial* index cannot serve), and both would otherwise be
+// auto-named `student_1`. Mongoose then silently keeps one of them, which is how this guard
+// was never actually enforced in a database that had already built the plain index first.
 postUtmeSessionSchema.index(
   { student: 1 },
-  { unique: true, partialFilterExpression: { status: 'in_progress' } },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'in_progress' },
+    name: 'one_active_putme_per_student',
+  },
 );
 
 postUtmeSessionSchema.set('toJSON', {

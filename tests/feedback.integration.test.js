@@ -79,9 +79,13 @@ describe('Student feedback (integration)', { skip }, () => {
   });
 
   after(async () => {
-    await new Promise((r) => server.close(r));
-    await m.mongoose.connection.dropDatabase();
-    await m.mongoose.disconnect();
+    // Defensive: a failure in `before` must not leave the process holding a server or a
+    // connection, because node:test waits for the event loop to drain before exiting.
+    if (server) await new Promise((r) => server.close(r));
+    if (m?.mongoose) {
+      await m.mongoose.connection.dropDatabase();
+      await m.mongoose.disconnect();
+    }
   });
 
   it('sends a note and reads it back with its status, rating and author', async () => {
