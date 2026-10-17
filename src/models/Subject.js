@@ -10,6 +10,9 @@ const subjectSchema = new mongoose.Schema(
     isGeneral: { type: Boolean, default: false, index: true },
     isCompulsoryUtme: { type: Boolean, default: false, index: true },
     isActive: { type: Boolean, default: true },
+    // Some papers (mostly Post-UTME maths) run with no calculator. The exam runtime reads
+    // this off the session it started, so changing it never alters a sitting already underway.
+    allowCalculator: { type: Boolean, default: true },
   },
   { timestamps: true },
 );

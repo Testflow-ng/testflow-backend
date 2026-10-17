@@ -57,16 +57,25 @@ const toExamView = (session) => ({
   id: String(session._id),
   subjectCode: session.subjectCode,
   status: session.status,
+  strikes: session.strikes ?? 0,
   durationMinutes: session.durationMinutes,
+  // The timer's authority is `expiresAt`; this is only the denominator it draws the ring from.
+  timeLimitSeconds: session.durationMinutes * 60,
+  // `!== false` so a session stored before this field existed still allows the calculator.
+  allowCalculator: session.allowCalculator !== false,
   startedAt: session.startedAt,
   expiresAt: session.expiresAt,
   remainingSeconds: remainingSeconds(session),
   totalQuestions: session.totalQuestions,
   questions: session.questions.map((question, index) => ({
+    // The bank id, which is what "Save question" and "Report it" send back. `index` stays the
+    // key answers are patched by: the id is identity, the index is position in this paper.
+    id: String(question.question),
     index,
     stem: question.stem,
     options: question.options,
-    selectedOption: question.selectedOption,
+    topic: question.topic ?? null,
+    selectedOption: question.selectedOption ?? null,
     markedForReview: question.markedForReview,
   })),
 });
@@ -79,17 +88,22 @@ const toResultView = (session) => ({
   startedAt: session.startedAt,
   submittedAt: session.submittedAt,
   durationMinutes: session.durationMinutes,
+  timeTakenSeconds: session.timeTakenSeconds ?? null,
   score: session.score,
   correctCount: session.correctCount,
   totalQuestions: session.totalQuestions,
   questions: session.questions.map((question, index) => ({
+    id: String(question.question),
     index,
     stem: question.stem,
     options: question.options,
-    selectedOption: question.selectedOption,
+    topic: question.topic ?? null,
+    selectedOption: question.selectedOption ?? null,
     correctOption: question.correctOption,
     explanation: question.explanation ?? null,
     isCorrect: question.selectedOption === question.correctOption,
+    // Kept so the corrections can show the flags the student set during the sitting.
+    markedForReview: Boolean(question.markedForReview),
   })),
 });
 
@@ -162,6 +176,7 @@ export const startSession = async (
         options: shuffledOptions.map((entry) => entry.option),
         correctOption: shuffledOptions.findIndex((entry) => entry.i === question.correctIndex),
         explanation: question.explanation,
+        topic: question.topic,
         selectedOption: null,
         markedForReview: false,
       };
@@ -190,6 +205,7 @@ export const startSession = async (
       expiresAt,
       questions,
       totalQuestions: questions.length,
+      allowCalculator: subject.allowCalculator !== false,
     });
     return toExamView(session);
   } catch (caught) {
@@ -322,7 +338,9 @@ export const submitSession = async (studentId, id) => {
       // Don't crash submission if streak update fails
     }
   }
-  return toResultView(session);
+  // A summary, not the paper: the corrections screen is what fetches `/result`, and a submit
+  // response that carried the answer key would be one more place to keep the mark out of.
+  return toSummary(session);
 };
 
 export const getResult = async (studentId, id) => {

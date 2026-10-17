@@ -51,11 +51,12 @@ const auditLogSchema = new mongoose.Schema(
         'ORG_MEMBER_ADD',
         'ORG_MEMBER_UPDATE',
         'ORG_MEMBER_REMOVE',
-        'ORG_INVITE'
+        'ORG_INVITE',
+        'REVIEW_FEEDBACK'
       ]
     },
     targetId: { type: mongoose.Schema.Types.ObjectId }, // ID of the user/subject/question affected
-    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization'] },
+    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization', 'Feedback'] },
     metadata: { type: mongoose.Schema.Types.Mixed }, // Any additional info (e.g. subject code)
     ip: { type: String },
     userAgent: { type: String }

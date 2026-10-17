@@ -9,6 +9,8 @@ const postUtmeQuestionSchema = new mongoose.Schema(
     options: { type: [String], required: true },
     correctOption: { type: Number, required: true },
     explanation: { type: String },
+    // Snapshotted for the report's topic breakdown, same as the single-subject paper.
+    topic: { type: String, trim: true, maxlength: 160 },
     selectedOption: { type: Number, default: null },
     markedForReview: { type: Boolean, default: false },
   },

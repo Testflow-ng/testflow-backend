@@ -7,6 +7,7 @@ import { Settings } from '../models/Settings.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { PublicResponse } from '../models/PublicResponse.js';
 import * as auditService from '../services/audit.service.js';
+import * as feedbackService from '../services/feedback.service.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import mongoose from 'mongoose';
@@ -561,4 +562,31 @@ export const getQuestionAnalytics = asyncHandler(async (req, res) => {
     options: optionStats,
     accuracy: accuracyStats
   });
+});
+
+/**
+ * The student feedback queue.
+ *
+ * Read and write in one place: the counts and the list are fetched together from the same
+ * filter, so the buttons and the rows can never disagree about what is in the queue.
+ */
+export const listFeedback = asyncHandler(async (req, res) => {
+  const { status, kind, page, limit } = req.query;
+  res.json(await feedbackService.listForAdmin({ status, kind, page, limit }));
+});
+
+export const updateFeedback = asyncHandler(async (req, res) => {
+  const feedback = await feedbackService.updateForAdmin(req.params.id, req.body, req.user._id);
+
+  // Answering a student is a decision worth being able to reconstruct later.
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'REVIEW_FEEDBACK',
+    targetId: feedback.id,
+    targetType: 'Feedback',
+    metadata: { status: feedback.status, replied: Boolean(feedback.reply) },
+    req,
+  });
+
+  res.json({ feedback });
 });

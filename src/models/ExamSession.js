@@ -14,6 +14,9 @@ const sessionQuestionSchema = new mongoose.Schema(
     options: { type: [String], required: true },
     correctOption: { type: Number, required: true },
     explanation: { type: String },
+    // Snapshotted so the printed report's topic breakdown is the paper the student actually
+    // sat, even if the bank question is retopiced later.
+    topic: { type: String, trim: true, maxlength: 160 },
     selectedOption: { type: Number, default: null },
     markedForReview: { type: Boolean, default: false },
   },
@@ -40,6 +43,9 @@ const examSessionSchema = new mongoose.Schema(
     correctCount: { type: Number },
     score: { type: Number },
     strikes: { type: Number, default: 0 }, // For focus detection (anti-cheating)
+    // Whether this sitting may use the on-screen calculator. Copied from the subject at
+    // start so the paper keeps the rule it was launched under.
+    allowCalculator: { type: Boolean, default: true },
   },
   { timestamps: true },
 );

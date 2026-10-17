@@ -24,6 +24,7 @@ export const createSubjectSchema = z.object({
     level: z.enum(['post-utme', '100', '200', '300', '400', '500']).default('100'),
     department: z.string().trim().max(100).optional(),
     isActive: z.boolean().optional(),
+    allowCalculator: z.boolean().optional(),
   }).strict().superRefine((data, ctx) => {
     if (data.level !== 'post-utme' && !data.code) {
       ctx.addIssue({
@@ -45,6 +46,7 @@ export const updateSubjectSchema = z.object({
       level: z.enum(['post-utme', '100', '200', '300', '400', '500']).optional(),
       department: z.string().trim().max(100).optional(),
       isActive: z.boolean().optional(),
+      allowCalculator: z.boolean().optional(),
     })
     .strict(),
 });

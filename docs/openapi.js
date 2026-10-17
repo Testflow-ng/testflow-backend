@@ -48,6 +48,7 @@ window.testflowOpenApi = {
     { name: 'Ads: Checkout & payments', description: 'Server-priced checkout, payment verification and provider webhook' },
     { name: 'Ads: Student serving', description: 'Ad slot shown to students after a completed CBT session, and engagement events' },
     { name: 'Ads: Administration', description: 'Moderation, pricing/settings, payments, refunds and job logs' },
+    { name: 'Feedback', description: 'Product feedback from students, and the admin queue that answers it' },
   ],
   paths: {
     '/health': {
@@ -140,6 +141,16 @@ window.testflowOpenApi = {
     [`${api}/verifications/my-status`]: { get: operation('Get current user verification status', { response: { type: 'object' } }) },
     [`${api}/verifications/queue`]: { get: operation('List verification queue', { admin: true, parameters: [{ name: 'status', in: 'query', schema: { type: 'string', enum: ['pending', 'approved', 'rejected', 'all'] } }], response: { type: 'object' } }) },
     [`${api}/verifications/{id}/process`]: { patch: operation('Approve or reject verification', { admin: true, parameters: [id], body: { type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['approved', 'rejected'] }, rejectionReason: { type: 'string' } } }, response: { type: 'object' }, errors: true }) },
+    [`${api}/feedback`]: {
+      get: operation('List the current user feedback', { description: "Only the caller's own notes, newest first.", response: { $ref: '#/components/schemas/FeedbackListResponse' } }),
+      post: operation('Send feedback about TestFlow', { description: 'The author is the authenticated user; `student` and `status` in the body are refused rather than ignored. The same words from the same account inside 24 hours answer with the existing note instead of a new one. 10 submissions / hour per account, counted across instances.', body: { $ref: '#/components/schemas/FeedbackInput' }, example: { kind: 'problem', rating: 2, screen: 'Exam timer', message: 'The countdown froze when I switched tabs.' }, created: true, response: { $ref: '#/components/schemas/FeedbackResponse' }, errors: true }),
+    },
+    [`${api}/admin/feedback`]: {
+      get: operation('List the student feedback queue', { admin: true, description: 'Returns the entries for the filter plus the counts the filter labels are drawn from. The counts describe the whole queue, not the current filter.', parameters: [{ name: 'status', in: 'query', schema: { $ref: '#/components/schemas/FeedbackStatus' } }, { name: 'kind', in: 'query', schema: { $ref: '#/components/schemas/FeedbackKind' } }, { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1 } }, { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100 } }], response: { $ref: '#/components/schemas/FeedbackQueueResponse' } }),
+    },
+    [`${api}/admin/feedback/{id}`]: {
+      patch: operation('Move a feedback note along and answer it', { admin: true, parameters: [id], description: 'Both parts are optional. `reply` is student-visible, and an empty string clears it. Resolving records who and when; reopening clears that bookkeeping and keeps the reply.', body: { $ref: '#/components/schemas/FeedbackUpdateInput' }, response: { $ref: '#/components/schemas/FeedbackResponse' }, errors: true }),
+    },
     [`${api}/admin/stats`]: { get: operation('Get admin dashboard statistics', { admin: true, response: { type: 'object' } }) },
     [`${api}/admin/activity`]: { get: operation('Get admin activity feed', { admin: true, response: { type: 'object' } }) },
     [`${api}/admin/settings`]: {
@@ -397,6 +408,14 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   AdsTrainingSummary: { type: 'object', properties: { totalRecords: int(), oldest: str({ format: 'date-time', nullable: true }), newest: str({ format: 'date-time', nullable: true }), outcomes: { type: 'array', items: { type: 'object', properties: { outcome: str({ enum: ['served', 'no_ad'] }), reason: str({ nullable: true }), count: int() } } }, labels: { type: 'object', properties: { served: int(), impressions: int(), clicks: int(), whatsappClicks: int(), skips: int() } }, perDay: { type: 'array', items: { type: 'object', properties: { day: str(), records: int() } } }, loggingEnabled: { type: 'boolean' }, retentionDays: int() } },
   AdsTrainingRecord: { type: 'object', description: 'One ad decision. `label` is defined only for the selected (served) ad; unselected candidates have no label (counterfactual outcome unknown).', properties: { schema: int({ example: 1 }), decisionId: str({ format: 'uuid' }), ts: str({ format: 'date-time', description: 'Hour precision' }), ranker: str({ example: 'deterministic-v1' }), policy: { type: 'object', properties: { name: str({ example: 'rules' }), propensity: { type: 'number', example: 1 }, exploration: { type: 'boolean' } } }, outcome: str({ enum: ['served', 'no_ad'] }), noAdReason: str({ nullable: true, enum: ['frequency_capped', 'no_eligible_campaign'] }), context: { type: 'object', description: 'Bucketed CBT context: sessionType, subjectCodes, department, level, accuracyBand, answeredBand, timeUseBand, lengthBand, strikesBand, streakBand, partOfDay, dayType, adsSeenTodayBand' }, candidateCount: int(), candidates: { type: 'array', maxItems: 25, items: { type: 'object', properties: { campaignKey: str(), rank: int(), relevance: int(), impressionsToday: int(), selected: { type: 'boolean' }, features: { type: 'object', description: 'destType, keywordCount, keywordMatch, titleLenBand, descWordsBand, durationBand, ageBand, remainingBand' } } } }, selectedKey: str({ nullable: true }), label: { nullable: true, type: 'object', properties: { impression: { type: 'boolean' }, visibleMs: int({ nullable: true }), click: { type: 'boolean' }, whatsappClick: { type: 'boolean' }, skip: { type: 'boolean' } } } } },
   AdsSettings: { type: 'object', description: 'Money in integer kobo.', properties: { adsEnabled: { type: 'boolean' }, trainingLoggingEnabled: { type: 'boolean', description: 'Log anonymized decisions for future model training' }, trainingRetentionDays: int({ example: 365, minimum: 30, maximum: 1095, description: 'How long anonymized training records are kept' }), dailyFeeKobo: int({ example: 100000 }), pricingPolicy: str({ enum: ['flat', 'tiered'] }), tiers: { type: 'array', items: { type: 'object', properties: { minDays: int({ minimum: 2 }), percentOff: int({ minimum: 1, maximum: 90 }) } } }, minDurationDays: int(), maxDurationDays: int(), maxDescriptionWords: int({ example: 500 }), maxTitleChars: int(), maxKeywordChars: int(), maxCampaignsPerCheckout: int(), maxActiveCampaignsPerAdvertiser: int(), imageTargetBytes: int(), imageMaxBytes: int(), retentionDays: int({ example: 7 }), rejectedRetentionDays: int({ example: 30 }), maxAdsPerStudentPerDay: int(), maxSameCampaignPerStudentPerDay: int(), termsVersion: str(), termsUrl: str({ format: 'uri' }), contentRulesUrl: str({ format: 'uri' }), privacyUrl: str({ format: 'uri' }) } },
+  FeedbackKind: { type: 'string', enum: ['problem', 'idea', 'other'], description: 'problem = something is broken, idea = something to build, other = neither' },
+  FeedbackStatus: { type: 'string', enum: ['open', 'in_review', 'resolved'] },
+  FeedbackInput: { type: 'object', required: ['message'], additionalProperties: false, properties: { kind: ref('FeedbackKind'), rating: int({ minimum: 1, maximum: 5, nullable: true, description: 'Optional on purpose: a bug report must never be gated on rating the product' }), screen: str({ maxLength: 80, nullable: true, description: 'Where in the app, free text such as "Exam timer"' }), message: str({ minLength: 10, maxLength: 1000 }) } },
+  FeedbackUpdateInput: { type: 'object', additionalProperties: false, properties: { status: ref('FeedbackStatus'), reply: str({ maxLength: 500, nullable: true, description: 'Student-visible; an empty string clears it' }) } },
+  Feedback: { type: 'object', properties: { id: ref('ObjectId'), kind: ref('FeedbackKind'), rating: int({ nullable: true }), screen: str({ nullable: true }), message: str(), status: ref('FeedbackStatus'), reply: str({ nullable: true }), createdAt: str({ format: 'date-time' }), updatedAt: str({ format: 'date-time' }), resolvedAt: str({ format: 'date-time', nullable: true }), student: { nullable: true, type: 'object', properties: { fullName: str(), username: str({ nullable: true }), matricNumber: str({ nullable: true }) } } } },
+  FeedbackResponse: { type: 'object', properties: { feedback: ref('Feedback') } },
+  FeedbackListResponse: { type: 'object', properties: { feedback: { type: 'array', items: ref('Feedback') } } },
+  FeedbackQueueResponse: { type: 'object', properties: { feedback: { type: 'array', items: ref('Feedback') }, counts: { type: 'object', properties: { open: int(), in_review: int(), resolved: int(), total: int(), averageRating: { type: 'number', nullable: true, description: 'Over rated notes only; null when none are rated' }, ratedCount: int() } }, page: int(), total: int() } },
 });
 // `role` in the User schema
 const userRole = window.testflowOpenApi.components.schemas.User?.properties?.role;
@@ -414,7 +433,8 @@ Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
             : path.includes('/exam-sessions') ? 'Exam sessions'
               : path.includes('/post-utme') ? 'Post-UTME'
                 : path.includes('/verifications') ? 'Verifications'
-                  : 'Administration';
+                  : path.includes('/feedback') ? 'Feedback'
+                    : 'Administration';
   Object.values(methods).forEach((method) => { method.tags = [tag]; });
 
   // --- everybody ---

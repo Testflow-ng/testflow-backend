@@ -2,6 +2,8 @@ import { Router } from 'express';
 import * as admin from '../controllers/admin.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
+import { validate } from '../middleware/validate.js';
+import { listFeedbackSchema, updateFeedbackSchema } from '../validators/feedback.schema.js';
 
 const router = Router();
 
@@ -20,6 +22,10 @@ router.post('/verify-utme', admin.verifyPostUtme);
 router.get('/post-utme/rankings', admin.getPostUtmeRankings);
 router.get('/questions/:id/analytics', admin.getQuestionAnalytics);
 router.get('/export-results', admin.exportResults);
+
+// Student feedback (the queue behind Settings > Feedback)
+router.get('/feedback', validate(listFeedbackSchema), admin.listFeedback);
+router.patch('/feedback/:id', validate(updateFeedbackSchema), admin.updateFeedback);
 
 // Bulk Questions
 router.post('/questions/bulk-delete', admin.bulkDeleteQuestions);

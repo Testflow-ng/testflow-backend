@@ -7,8 +7,8 @@ export const startSession = asyncHandler(async (req, res) => {
 });
 
 export const saveAnswer = asyncHandler(async (req, res) => {
-  const result = await postUtmeService.saveAnswer(req.user._id, req.params.id, req.body);
-  res.json(result);
+  const answer = await postUtmeService.saveAnswer(req.user._id, req.params.id, req.body);
+  res.json({ answer });
 });
 
 export const submitSession = asyncHandler(async (req, res) => {
