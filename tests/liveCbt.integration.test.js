@@ -253,4 +253,71 @@ describe('Live CBT delivery (integration)', { skip }, () => {
     const after = await participantDoc(code, student.userId);
     assert.equal(after.questions[0].selectedOption, null, 'a released result is never rewritten');
   });
+
+  it('ranks every submitted paper and hands each participant the board', async () => {
+    const host = await account();
+    const a = await account();
+    const b = await account();
+    await grantHosting(host.userId);
+    const created = await host.c.call('POST', '/live-cbt', {
+      body: { title: `Board ${uniq()}`, subject: 'LIV101', numQuestions: 8, durationMinutes: 30 },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    const code = created.json.exam.shareCode;
+
+    for (const p of [a, b]) {
+      assert.equal((await p.c.call('POST', `/live-cbt/${code}/join`)).status, 201);
+      assert.equal((await host.c.call('POST', `/live-cbt/${code}/approve`, { body: { userId: p.userId } })).status, 200);
+    }
+    assert.equal((await host.c.call('POST', `/live-cbt/${code}/start`)).status, 200);
+
+    const paperA = await a.c.call('GET', `/live-cbt/${code}/questions`);
+    assert.equal(paperA.status, 200);
+    assert.equal((await b.c.call('GET', `/live-cbt/${code}/questions`)).status, 200);
+
+    // A aces the paper; B submits an untouched one, so both are on the board with a real rank.
+    const doc = await participantDoc(code, a.userId);
+    const perfect = paperA.json.exam.questions.map((q) => ({ questionIndex: q.index, selectedOption: doc.questions[q.index].correctOption }));
+    assert.equal((await a.c.call('POST', `/live-cbt/${code}/submit`, { body: { answers: perfect } })).status, 200);
+    assert.equal((await b.c.call('POST', `/live-cbt/${code}/submit`)).status, 200);
+
+    assert.equal((await host.c.call('POST', `/live-cbt/${code}/end`)).status, 200);
+    assert.equal((await host.c.call('POST', `/live-cbt/${code}/publish`)).status, 200);
+
+    const mine = await a.c.call('GET', `/live-cbt/${code}/result`);
+    assert.equal(mine.status, 200, JSON.stringify(mine.json));
+    assert.equal(mine.json.result.rank, 1);
+    const board = mine.json.result.leaderboard;
+    assert.ok(Array.isArray(board), 'the board travels with the caller result');
+    assert.equal(board.length, 2);
+    assert.equal(board[0].rank, 1);
+    assert.equal(board[0].isYou, true, 'the caller is marked on the public board');
+    assert.equal(board[1].isYou, false);
+    assert.ok(!('email' in board[0]), 'a public board row never carries an email');
+    for (const row of board) {
+      assert.equal(typeof row.accuracy, 'number');
+      assert.equal(typeof row.timeTakenSeconds, 'number');
+    }
+  });
+
+  it('lets the host open a participant paper, and keeps that to the host', async () => {
+    const { code, host, student } = await runningExam();
+    await student.c.call('POST', `/live-cbt/${code}/submit`);
+    assert.equal((await host.c.call('POST', `/live-cbt/${code}/end`)).status, 200);
+
+    // The participant waits for publish, but the host can already read the marked paper.
+    assert.equal((await student.c.call('GET', `/live-cbt/${code}/result`)).status, 409);
+    const paper = await host.c.call('GET', `/live-cbt/${code}/participants/${student.userId}/result`);
+    assert.equal(paper.status, 200, JSON.stringify(paper.json));
+    assert.equal(paper.json.result.displayName, 'Live Tester');
+    assert.equal(typeof paper.json.result.score, 'number');
+    assert.ok(Array.isArray(paper.json.result.corrections), 'the host reads the same corrections');
+
+    // A participant cannot read a paper through the host route.
+    assert.equal((await student.c.call('GET', `/live-cbt/${code}/participants/${student.userId}/result`)).status, 403);
+
+    // Someone who never joined has no paper to open.
+    const absent = await account();
+    assert.equal((await host.c.call('GET', `/live-cbt/${code}/participants/${absent.userId}/result`)).status, 404);
+  });
 });

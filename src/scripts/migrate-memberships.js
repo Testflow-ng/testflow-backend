@@ -26,12 +26,15 @@ export const planMembership = (user, hasAdsProfile) => {
     memberships.push({ product: 'ads', role: 'advertiser', joinedAt: user.createdAt ?? new Date() });
     set.role = 'student';
   }
+  let review = null;
   if (hasAdsProfile && !memberships.some((m) => m.product === 'ads')) {
-    if (!user.isEmailVerified) return { action: 'review', reason: 'has an ads profile but the email is not verified; not linked' };
-    memberships.push({ product: 'ads', role: 'advertiser', joinedAt: new Date() });
+    if (user.isEmailVerified) memberships.push({ product: 'ads', role: 'advertiser', joinedAt: new Date() });
+    else review = 'has an ads profile but the email is not verified; ads access not linked';
   }
-  if (!memberships.length) return { action: 'skip', reason: `no product for role "${user.role}"` };
-  return { action: 'migrate', memberships, set };
+  if (!memberships.length) {
+    return review ? { action: 'review', reason: review } : { action: 'skip', reason: `no product for role "${user.role}"` };
+  }
+  return { action: 'migrate', memberships, set, review };
 };
 
 export const runMigration = async ({ dryRun }) => {
@@ -43,6 +46,7 @@ export const runMigration = async ({ dryRun }) => {
     const plan = planMembership(user, adsUsers.has(String(user._id)));
     if (plan.action === 'skip') { stats.skipped += 1; continue; }
     if (plan.action === 'review') { stats.needsReview += 1; review.push({ id: String(user._id), reason: plan.reason }); continue; }
+    if (plan.review) { stats.needsReview += 1; review.push({ id: String(user._id), reason: plan.review }); }
     plan.memberships.forEach((m) => { stats.byProduct[m.product] += 1; });
     stats.migrated += 1;
     if (!dryRun) {

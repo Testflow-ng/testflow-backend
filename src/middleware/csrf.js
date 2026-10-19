@@ -7,7 +7,12 @@ import { logger } from '../utils/logger.js';
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 // Server-to-server / pre-session endpoints: no ambient cookie authority to forge.
-const SKIP_ALL = ['/api/ads/payments/webhook', '/api/billing/ad-free/webhook'];
+const SKIP_ALL = [
+  '/api/ads/payments/webhook',
+  '/api/billing/ad-free/webhook',
+  '/api/v1/public/payments/webhook',
+  '/api/v1/everybody/subscriptions/webhook',
+];
 const SKIP_TOKEN = ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password',
   '/api/auth/verify-email', '/api/auth/resend-verification', '/api/auth/oauth/token', '/api/ads/auth/login', '/api/ads/auth/register'];
 

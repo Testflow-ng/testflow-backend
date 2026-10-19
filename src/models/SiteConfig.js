@@ -1,30 +1,37 @@
 import mongoose from 'mongoose';
 
+export const SITE_TEMPLATES = Object.freeze(['classic', 'modern', 'minimal']);
+
+/** The pages an owner can switch on or off. Order matches the console's list. */
+export const SITE_PAGES = Object.freeze([
+  'exams', 'results', 'library', 'community', 'leaderboard', 'about', 'contact',
+]);
+
+/** A brand-new site starts with everything on except Community. */
+export const DEFAULT_SITE_PAGES = Object.freeze({
+  exams: true, results: true, library: true, community: false,
+  leaderboard: true, about: true, contact: true,
+});
+
+/**
+ * The words, pictures and switches of one organisation's site.
+ *
+ * Two surfaces (the public landing page and the student portal) each carry their own block list,
+ * so the shape is stored as data rather than as a fixed set of columns. `draft` is what the owner
+ * is editing; `published` is what visitors see. Publishing copies the draft across wholesale, so a
+ * half-finished edit can never leak. The exact block schema is checked in the validator, not here,
+ * which is why both halves are `Mixed`: a new block type must not need a model migration.
+ */
 const siteConfigSchema = new mongoose.Schema(
   {
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, unique: true },
-    templateKey: { type: String, enum: ['classic', 'modern', 'minimal'], default: 'modern' },
-    draft: {
-      type: new mongoose.Schema({
-        brand: { name: { type: String, trim: true, maxlength: 120 }, logoAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'OrgAsset' }, faviconAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'OrgAsset' }, primaryColor: { type: String, pattern: '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' }, accentColor: { type: String, pattern: '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' } },
-        seo: { title: { type: String, maxLength: 70 }, description: { type: String, maxLength: 160 } },
-        nav: { type: { type: 'array', items: { type: 'object', properties: { label: { type: 'string', maxLength: 50 }, href: { type: 'string' } } }, maxItems: 8, default: [] } },
-        sections: { type: { type: 'array', items: { type: 'object' }, maxItems: 12, default: [] } },
-      }),
-      validated: { type: Boolean, default: false },
-    },
-    published: {
-      type: new mongoose.Schema({
-        brand: { name: { type: String, trim: true, maxlength: 120 }, logoAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'OrgAsset' }, faviconAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'OrgAsset' }, primaryColor: { type: String, pattern: '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' }, accentColor: { type: String, pattern: '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' } },
-        seo: { title: { type: String, maxLength: 70 }, description: { type: String, maxLength: 160 } },
-        nav: { type: { type: 'array', items: { type: 'object', properties: { label: { type: 'string', maxLength: 50 }, href: { type: 'string' } } }, maxItems: 8 } },
-        sections: { type: { type: 'array', items: { type: 'object' } } },
-        publishedAt: { type: Date, default: Date.now },
-        publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      }),
-      publishedVersion: { type: Number, default: 0 },
-    },
+    template: { type: String, enum: SITE_TEMPLATES, default: 'modern' },
+    draft: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
+    published: { type: mongoose.Schema.Types.Mixed, default: null },
     draftVersion: { type: Number, default: 0 },
+    publishedVersion: { type: Number, default: 0 },
+    publishedAt: { type: Date, default: null },
+    publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true },
 );

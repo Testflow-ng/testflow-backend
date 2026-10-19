@@ -5,18 +5,26 @@ export const SUB_STATUSES = Object.freeze(['pending', 'active', 'past_due', 'exp
 const subscriptionSchema = new mongoose.Schema(
   {
     organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
-    planKey: { type: String, enum: ['pro', 'studio'], required: true },
+    // Free is the default subscription every organisation starts on; Pro and Studio are paid.
+    planKey: { type: String, enum: ['free', 'pro', 'studio'], required: true },
     planSnapshot: {
       priceMinor: { type: Number, required: true },
       currency: { type: String, required: true, default: 'NGN', uppercase: true },
       entitlements: {
         type: new mongoose.Schema({
           adsEnabled: { type: Boolean },
+          maxExams: { type: Number },
+          questionBanks: { type: Boolean },
+          announcements: { type: Boolean },
+          reports: { type: Boolean },
+          paidExams: { type: Boolean },
+          liveCbt: { type: Boolean },
           maxStudents: { type: Number },
           maxActiveExams: { type: Number },
           maxExamsPerMonth: { type: Number },
           customDomain: { type: Boolean },
           storageMb: { type: Number },
+          maxImages: { type: Number },
           communityEnabled: { type: Boolean },
         }),
         default: {},
@@ -28,9 +36,10 @@ const subscriptionSchema = new mongoose.Schema(
     // `status` never left 'pending'.
     status: { type: String, enum: SUB_STATUSES, default: 'pending' },
     currentPeriodStart: { type: Date, default: Date.now },
-    currentPeriodEnd: { type: Date, required: true },
+    // Null on Free, which never expires. Paid subscriptions always carry a date.
+    currentPeriodEnd: { type: Date, default: null },
     cancelAtPeriodEnd: { type: Boolean, default: false },
-    pendingPlanKey: { type: String, enum: ['pro', 'studio'] },
+    pendingPlanKey: { type: String, enum: ['free', 'pro', 'studio'] },
     graceEndsAt: { type: Date },
     lastPaymentId: { type: String },
     idempotencyKey: { type: String },

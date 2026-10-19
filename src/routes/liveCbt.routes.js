@@ -5,6 +5,7 @@ import { requireVerified } from '../middleware/requireVerified.js';
 import { validate } from '../middleware/validate.js';
 import {
   createLiveExamSchema,
+  participantResultSchema,
   saveLiveAnswerSchema,
   shareCodeParamSchema,
   submitLiveExamSchema,
@@ -38,6 +39,7 @@ router.post('/:code/submit', validate(submitLiveExamSchema), live.submitExam);
 
 // Results
 router.get('/:code/result', validate(shareCodeParamSchema), live.getMyResult);
+router.get('/:code/participants/:userId/result', validate(participantResultSchema), live.participantResult);
 router.get('/:code/dashboard', validate(shareCodeParamSchema), live.hostDashboard);
 router.get('/:code/export.csv', validate(shareCodeParamSchema), live.exportCsv);
 

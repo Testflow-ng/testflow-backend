@@ -13,28 +13,28 @@ These docs are written by the frontend work for the backend to review and build.
 ## Backend checklist (tick as you build)
 
 **Testflow (students)**
-- [ ] `GET /api/leaderboard` overall board, `rank` and `me` on subject boards (FRONTEND_UPDATE 1)
-- [ ] `library` entitlement, `402` on pages and download, backfill for existing passes (LIBRARY_GATE)
-- [ ] Notification preferences sync, optional (FRONTEND_UPDATE 4)
+- [x] `GET /api/leaderboard` overall board, `rank` and `me` on subject boards (FRONTEND_UPDATE 1)
+- [x] `library` entitlement, `402` on pages and download, backfill for existing passes (LIBRARY_GATE)
+- [ ] Notification preferences sync, optional (FRONTEND_UPDATE 4). **Not built yet; no preferences store.**
 
 **Testflow for Everyone, organiser**
-- [ ] Organisation create, name, logo, colours, publish (REQUIREMENTS 1, 7)
-- [ ] Payout: banks, account verify, Paystack sub-account, split on every payment, earnings and payments lists (REQUIREMENTS 4, 11)
-- [ ] Domains: subdomain check/add, custom domain DNS verify (REQUIREMENTS 5)
-- [ ] Exams: fields, publish rules, lock after attempts (EXAMS 1)
-- [ ] Question banks, questions per exam, images, CSV import (EXAMS 2 and Question banks)
-- [ ] Results, student records page (`students/:studentId`, EXAMS end), CSV (EXAMS 3)
-- [ ] Question flags and edit/delete rules (EXAMS 2, 5)
-- [ ] Announcements as community posts (EXAMS 8)
-- [ ] Plans: Free (3 exams), Pro, Studio; entitlements; ads flag; upgrade callback (REQUIREMENTS 9, 10, 12, 13)
-- [ ] **Live CBT is Studio only** (REQUIREMENTS 12)
+- [x] Organisation create, name, logo, colours, publish (REQUIREMENTS 1, 7)
+- [x] Payout: banks, account verify, Paystack sub-account, split on every payment, earnings and payments lists (REQUIREMENTS 4, 11)
+- [x] Domains: subdomain check/add, custom domain DNS verify (REQUIREMENTS 5)
+- [x] Exams: fields, publish rules, lock after attempts (EXAMS 1)
+- [x] Question banks, questions per exam, images, CSV/ZIP import, template (EXAMS 2 and Question banks)
+- [x] Results, student records page (`students/:studentId`, EXAMS end), CSV with formula-injection guard (EXAMS 3)
+- [x] Question flags and edit/delete rules, incl. soft-delete (EXAMS 2, 5)
+- [x] Announcements as community posts (EXAMS 8)
+- [x] Plans: Free (3 exams), Pro, Studio; entitlements; ads flag; upgrade/renew/verify + webhook (REQUIREMENTS 9, 10, 12, 13)
+- [x] **Live CBT is Studio only**, on create, publish and start; downgrade unpublishes future live exams (`npm run subscription:lifecycle`) (REQUIREMENTS 12)
 
 **Testflow for Everyone, students (tenant site)**
-- [ ] Resolve tenant from `X-Tenant-Host`, public site, tenant sign-up/sign-in/me/logout (REQUIREMENTS 8)
-- [ ] Exam list, results and corrections with `showCorrections` enforced incl. `hidden` (EXAMS 4)
-- [ ] Flag a question (EXAMS 5)
-- [ ] Take an exam on the tenant site, free or paid via checkout (EXAMS 6, 7). **Not built in the frontend yet.**
-- [ ] Server-rendered share tags (`og:title`, image) for tenant hostnames (REQUIREMENTS 5)
+- [x] Resolve tenant from `X-Tenant-Host`, public site, tenant sign-up/sign-in/me/logout (REQUIREMENTS 8)
+- [x] Exam list, results and corrections with `showCorrections` enforced incl. `hidden` and `score_only` (EXAMS 4)
+- [x] Flag a question (EXAMS 5)
+- [x] Take an exam on the tenant site, free or paid via Paystack split checkout (EXAMS 6, 7). **Not built in the frontend yet.**
+- [x] Server-rendered share tags (`og:title`, image) for tenant hostnames (REQUIREMENTS 5)
 
 ## Product rules the frontend assumes
 1. Students pay for one thing only: an exam the organiser charges for (Studio plan). No student pass or ad-removal on tenant sites.

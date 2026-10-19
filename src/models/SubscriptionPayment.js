@@ -14,7 +14,7 @@ const subscriptionPaymentSchema = new mongoose.Schema(
     status: { type: String, enum: SUB_PAYMENT_STATUSES, default: 'initialized' },
     provider: { type: String, enum: ['paystack', 'none'] },
     authorizationUrl: { type: String },
-    idempotencyKey: { type: String, unique: true, sparse: true },
+    idempotencyKey: { type: String },
     paidAt: { type: Date },
     verifiedAt: { type: Date },
     processedEventIds: [{ type: String }], // dedupe webhook event ids
@@ -24,7 +24,11 @@ const subscriptionPaymentSchema = new mongoose.Schema(
 
 subscriptionPaymentSchema.index({ organization: 1, createdAt: 1 });
 subscriptionPaymentSchema.index({ status: 1, createdAt: 1 });
-subscriptionPaymentSchema.index({ organization: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+// Only real keys are indexed, so two checkouts that never sent one never collide.
+subscriptionPaymentSchema.index(
+  { organization: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);
 
 subscriptionPaymentSchema.set('toJSON', {
   virtuals: true,

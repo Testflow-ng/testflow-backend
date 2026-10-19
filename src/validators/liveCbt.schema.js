@@ -33,6 +33,10 @@ export const targetUserSchema = z.object({
   body: z.object({ userId: objectId }).strict(),
 });
 
+export const participantResultSchema = z.object({
+  params: z.object({ code: shareCode, userId: objectId }),
+});
+
 export const saveLiveAnswerSchema = z.object({
   params: z.object({ code: shareCode }),
   body: z

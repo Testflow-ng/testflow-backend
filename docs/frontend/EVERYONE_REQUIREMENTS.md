@@ -130,7 +130,7 @@ workspace and for any exam page. The frontend renders only the two placements be
 
 **Exam fields** (create/update `POST|PATCH /organizations/:id/exams`, read `GET .../exams/:examId`):
 `title, instructions, mode: 'anytime'|'live', startsAt (ISO, live only), durationMinutes, priceMinor (0 = free), access: 'link'|'invited'|'code', accessCode,
-showCorrections: 'now'|'after_exam'|'never', shuffleQuestions, shuffleOptions, negativeMarking, attemptsAllowed, status, questionCount`.
+showCorrections: 'now'|'after_exam'|'score_only'|'hidden', shuffleQuestions, shuffleOptions, negativeMarking, attemptsAllowed, status, questionCount`.
 - **Live CBT:** every student starts at `startsAt`; the join page waits until then and the clock is the server's. Reuse the live-CBT room machinery where possible.
 - Publishing a paid exam without an active payout account returns `422 PAYOUT_REQUIRED`.
 
@@ -144,7 +144,7 @@ showCorrections: 'now'|'after_exam'|'never', shuffleQuestions, shuffleOptions, n
 **Announcements** are `community/posts` with `type: 'announcement'` (create, pin, hide, delete). Students see them on the tenant home page: `GET /api/v1/public/announcements`.
 
 **What students see after an exam (tenant side)**
-- `GET /api/v1/public/results` and `GET /api/v1/public/results/:id`. The detail returns `corrections` **only if the exam's `showCorrections` allows it right now** (`now`, or `after_exam` once the exam has closed); otherwise `corrections: null`. The backend must enforce this, not the UI.
+- `GET /api/v1/public/results` and `GET /api/v1/public/results/:id`. The detail returns `corrections` **only if the exam's `showCorrections` allows it right now** (`now`, or `after_exam` once the exam has closed); `score_only` returns the score with `corrections: null`; `hidden` returns no score and no corrections at all (the submit response is treated the same way). `EVERYONE_EXAMS_SPEC.md` section 4 is the source of truth. The backend enforces this, not the UI.
 
 **Colours.** `brand.primaryColor` and `brand.accentColor` (already in the site config) now have a picker on the Name and domain page; publishing applies them to every tenant page.
 

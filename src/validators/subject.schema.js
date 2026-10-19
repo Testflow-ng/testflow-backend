@@ -16,6 +16,14 @@ export const subjectIdSchema = z.object({
   params: z.object({ id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ID format') }),
 });
 
+export const overallLeaderboardSchema = z.object({
+  query: z.object({
+    limit: z.coerce.number().int().min(1).max(50).default(10),
+    level: z.enum(['post-utme', '100', '200', '300', '400', '500']).optional(),
+    period: z.enum(['all', 'month', 'week']).default('all'),
+  }),
+});
+
 export const createSubjectSchema = z.object({
   body: z.object({
     code: z.string().trim().max(20).optional(),

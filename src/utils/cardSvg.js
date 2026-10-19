@@ -184,3 +184,42 @@ export const questionCardSvg = ({ subjectCode, stem, options }) => {
       extraMarkup,
   );
 };
+
+/** Only our own validated hex colours reach an attribute, so nothing else can be injected here. */
+const safeColor = (value, fallback) => (/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(String(value)) ? value : fallback);
+
+/**
+ * The share image for a tenant site: the organisation's name and tagline on its own colours.
+ *
+ * A crawler that builds a WhatsApp preview must never see "TestFlow" where the school's name goes,
+ * so this card carries the brand in full and only the small "Powered by TestFlow" line is ours. It
+ * is rasterised without the mark, because the mark would collide with that line.
+ */
+export const siteCardSvg = ({ name, tagline, primaryColor, accentColor }) => {
+  const bg = safeColor(primaryColor, '#163a5f');
+  const accent = safeColor(accentColor, '#f5c542');
+  const titleLines = wrapText(name || 'Your CBT', { maxWidth: 1000, fontSize: 96, maxLines: 2 });
+  const tagLines = tagline ? wrapText(tagline, { maxWidth: 960, fontSize: 40, maxLines: 2 }) : [];
+
+  const firstY = titleLines.length > 1 ? 236 : 292;
+  const titleMarkup = titleLines
+    .map((line, index) => text({ x: 72, y: firstY + index * 108, size: 96, weight: 800, fill: '#ffffff', content: line }))
+    .join('');
+  const tagStart = firstY + titleLines.length * 108 + 8;
+  const tagMarkup = tagLines
+    .map((line, index) => text({ x: 76, y: tagStart + index * 54, size: 40, fill: 'rgba(255,255,255,0.86)', content: line }))
+    .join('');
+
+  const badgeLabel = 'Online practice exams';
+  const badgeWidth = Math.round(44 + estimateWidth(badgeLabel, 24));
+
+  return svg(
+    `<rect width="${WIDTH}" height="${HEIGHT}" fill="${bg}"/>` +
+      `<rect x="0" y="0" width="${WIDTH}" height="14" fill="${accent}"/>` +
+      titleMarkup +
+      tagMarkup +
+      `<rect x="0" y="${HEIGHT - 96}" width="${WIDTH}" height="96" fill="rgba(0,0,0,0.20)"/>` +
+      text({ x: 72, y: HEIGHT - 40, size: 26, fill: 'rgba(255,255,255,0.85)', content: 'Powered by TestFlow' }) +
+      pill({ x: WIDTH - 72 - badgeWidth, y: HEIGHT - 64, height: 44, label: badgeLabel, fontSize: 24, fill: accent, color: INK }),
+  );
+};

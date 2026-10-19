@@ -80,8 +80,13 @@ export const updateSubject = async (id, updates) => {
   return subject;
 };
 
-export const getSubjectLeaderboard = async (subjectId) => {
-  const leaderboard = await ExamSession.aggregate([
+/**
+ * The subject board: each student's best submitted score for one subject, ranked with the same
+ * tie-breaks as the Hall of Fame (score, then questions, then time, then date). The caller's own
+ * row and rank ride along in `me`, even when they are below the visible top ten.
+ */
+export const getSubjectLeaderboard = async (subjectId, userId = null) => {
+  const rows = await ExamSession.aggregate([
     {
       $match: {
         subject: new mongoose.Types.ObjectId(subjectId),
@@ -101,7 +106,6 @@ export const getSubjectLeaderboard = async (subjectId) => {
       }
     },
     { $sort: { bestScore: -1, totalQuestions: -1, timeTakenSeconds: 1 } },
-    { $limit: 10 },
     {
       $lookup: {
         from: 'users',
@@ -112,21 +116,140 @@ export const getSubjectLeaderboard = async (subjectId) => {
     },
     { $unwind: '$studentInfo' },
     // Filter out users who opted out of the leaderboard
-    { $match: { 'studentInfo.showOnLeaderboard': { $ne: false } } },
-    {
-      $project: {
-        _id: 0,
-        username: '$studentInfo.username',
-        fullName: '$studentInfo.fullName',
-        score: '$bestScore',
-        totalQuestions: 1,
-        timeTakenSeconds: 1,
-        date: 1
-      }
-    }
+    { $match: { 'studentInfo.showOnLeaderboard': { $ne: false } } }
   ]);
 
-  return leaderboard;
+  const ranked = rows.map((row, index) => ({
+    rank: index + 1,
+    studentId: String(row._id),
+    username: row.studentInfo.username ?? null,
+    fullName: row.studentInfo.fullName,
+    score: row.bestScore,
+    totalQuestions: row.totalQuestions,
+    timeTakenSeconds: row.timeTakenSeconds,
+    date: row.date,
+  }));
+
+  const leaderboard = ranked.slice(0, 10).map((row) => ({
+    rank: row.rank,
+    username: row.username,
+    fullName: row.fullName,
+    score: row.score,
+    totalQuestions: row.totalQuestions,
+    timeTakenSeconds: row.timeTakenSeconds,
+    date: row.date,
+  }));
+  const mine = userId ? ranked.find((row) => row.studentId === String(userId)) : null;
+  const me = mine
+    ? {
+        rank: mine.rank,
+        username: mine.username,
+        fullName: mine.fullName,
+        score: mine.score,
+        totalQuestions: mine.totalQuestions,
+        timeTakenSeconds: mine.timeTakenSeconds,
+      }
+    : null;
+
+  return { leaderboard, me };
+};
+
+/** A tiny process-local cache; the overall board is read-heavy and changes slowly. */
+const OVERALL_TTL_MS = 3 * 60 * 1000;
+const overallCache = new Map();
+const cacheKey = (options) => `${options.limit}|${options.level ?? ''}|${options.period}`;
+
+const periodStart = (period) => {
+  if (period === 'week') return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  if (period === 'month') return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  return null;
+};
+
+const computeOverall = async ({ level = null, period = 'all' } = {}) => {
+  const match = { status: 'submitted' };
+  const start = periodStart(period);
+  if (start) match.submittedAt = { $gte: start };
+
+  const rows = await ExamSession.aggregate([
+    { $match: match },
+    // Best attempt per (student, subject) first, so `points` sums the best per subject.
+    { $sort: { score: -1, totalQuestions: -1, timeTakenSeconds: 1, submittedAt: 1 } },
+    {
+      $group: {
+        _id: { student: '$student', subject: '$subject' },
+        bestScore: { $first: '$score' },
+        attempts: { $sum: 1 },
+      },
+    },
+    {
+      $group: {
+        _id: '$_id.student',
+        points: { $sum: '$bestScore' },
+        subjectsCount: { $sum: 1 },
+        averageScore: { $avg: '$bestScore' },
+        examsCount: { $sum: '$attempts' },
+      },
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'studentInfo',
+      },
+    },
+    { $unwind: '$studentInfo' },
+    // The board shows usernames, and privacy is opt-out.
+    {
+      $match: {
+        'studentInfo.showOnLeaderboard': { $ne: false },
+        'studentInfo.username': { $type: 'string' },
+        ...(level ? { 'studentInfo.level': String(level) } : {}),
+      },
+    },
+    { $sort: { points: -1, subjectsCount: -1, averageScore: -1, 'studentInfo.username': 1 } },
+  ]);
+
+  return rows.map((row, index) => ({
+    rank: index + 1,
+    studentId: String(row._id),
+    username: row.studentInfo.username,
+    fullName: row.studentInfo.fullName,
+    points: row.points,
+    subjectsCount: row.subjectsCount,
+    averageScore: Math.round(row.averageScore * 10) / 10,
+    examsCount: row.examsCount,
+  }));
+};
+
+/** The Hall of Fame overall board: the sum of each student's best score per subject. */
+export const getOverallLeaderboard = async ({ limit = 10, level = null, period = 'all' } = {}, userId = null) => {
+  const options = { limit: Math.min(Math.max(Number(limit) || 10, 1), 50), level, period };
+  const key = cacheKey(options);
+  const cached = overallCache.get(key);
+  let ranked;
+  if (cached && cached.expiresAt > Date.now()) {
+    ranked = cached.ranked;
+  } else {
+    ranked = await computeOverall(options);
+    overallCache.set(key, { ranked, expiresAt: Date.now() + OVERALL_TTL_MS });
+  }
+
+  const leaderboard = ranked.slice(0, options.limit).map((row) => ({
+    rank: row.rank,
+    username: row.username,
+    fullName: row.fullName,
+    points: row.points,
+    subjectsCount: row.subjectsCount,
+    averageScore: row.averageScore,
+    examsCount: row.examsCount,
+  }));
+  const mine = userId ? ranked.find((row) => row.studentId === String(userId)) : null;
+  const me = mine
+    ? { rank: mine.rank, points: mine.points, subjectsCount: mine.subjectsCount, averageScore: mine.averageScore, examsCount: mine.examsCount }
+    : null;
+
+  return { leaderboard, me };
 };
 
 export const togglePinSubject = async (userId, subjectId) => {

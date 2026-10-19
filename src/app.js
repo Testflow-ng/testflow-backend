@@ -27,11 +27,9 @@ app.disable('x-powered-by');
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || isAllowedOrigin(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('CORS blocked: Origin mismatch'));
-      }
+      // An unknown origin simply gets no CORS headers (the browser blocks the read). Unsafe
+      // requests from it are then refused with 403 CSRF_ORIGIN by csrfProtect, instead of a 500.
+      callback(null, !origin || isAllowedOrigin(origin));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
@@ -47,7 +45,14 @@ app.use(
     // The payment webhook signature is computed over the exact raw bytes.
     verify: (req, _res, buf) => {
       const url = req.originalUrl;
-      if (url.startsWith('/api/ads/payments/webhook') || url.startsWith('/api/billing/ad-free/webhook')) req.rawBody = buf;
+      if (
+        url.startsWith('/api/ads/payments/webhook') ||
+        url.startsWith('/api/billing/ad-free/webhook') ||
+        url.startsWith('/api/v1/public/payments/webhook') ||
+        url.startsWith('/api/v1/everybody/subscriptions/webhook')
+      ) {
+        req.rawBody = buf;
+      }
     },
   }),
 );

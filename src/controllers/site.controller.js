@@ -1,85 +1,49 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { SiteConfig } from '../models/SiteConfig.js';
-import { OrgAsset } from '../models/OrgAsset.js';
-import { AppError } from '../utils/AppError.js';
+import * as site from '../services/orgSite.service.js';
 import { recordAction } from '../services/audit.service.js';
 
-export const listTemplates = asyncHandler(async (req, res) => {
-  res.json({ templates: ['classic', 'modern', 'minimal'] });
+export const listTemplates = asyncHandler(async (_req, res) => {
+  res.json({ templates: site.TEMPLATES });
 });
 
-export const listAvailableTemplates = asyncHandler(async (req, res) => {
-  res.json({ templates: ['classic', 'modern', 'minimal'] });
-});
-
+/** GET /api/v1/everybody/organizations/:organizationId/site */
 export const get = asyncHandler(async (req, res) => {
-  const { organizationId } = req.params;
-  let config = await SiteConfig.findOne({ organization: organizationId }).lean();
-  if (!config) {
-    config = await SiteConfig.create({ organization: organizationId });
-  }
-  res.json({ site: config });
+  res.json({ site: await site.getSite(req.params.organizationId) });
 });
 
+/** PATCH /api/v1/everybody/organizations/:organizationId/site */
 export const patch = asyncHandler(async (req, res) => {
-  const { organizationId } = req.params;
-  let config = await SiteConfig.findOneAndUpdate(
-    { organization: organizationId },
-    { $set: { draft: req.body, draftVersion: req.body ? Date.now() : null } },
-    { new: true, upsert: true, runValidators: true },
-  ).lean();
+  const view = await site.patchSite(req.params.organizationId, req.body);
   await recordAction({
-    actorId: req.user._id, action: 'SITE_EDIT', targetId: organizationId, targetType: 'Organization',
+    actorId: req.user._id, action: 'SITE_EDIT', targetId: req.org._id, targetType: 'Organization',
     metadata: { fields: Object.keys(req.body) }, req,
   });
-  res.json({ site: config });
+  res.json({ site: view });
 });
 
+/** POST /api/v1/everybody/organizations/:organizationId/site/preview */
 export const publishPreview = asyncHandler(async (req, res) => {
-  const { organizationId } = req.params;
-  const config = await SiteConfig.findOne({ organization: organizationId }).lean();
-  if (!config || !config.draft) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'No draft to preview.');
-  }
-  // Return a signed short-lived preview token/payload
-  res.json({ preview: { config: config.draft, version: config.draftVersion }, expiresIn: 300 });
+  res.json(await site.previewSite(req.params.organizationId));
 });
 
+/** POST /api/v1/everybody/organizations/:organizationId/site/publish */
 export const publish = asyncHandler(async (req, res) => {
-  const { organizationId } = req.params;
-  const config = await SiteConfig.findOneAndUpdate(
-    { organization: organizationId },
-    {
-      $set: {
-        published: config.draft,
-        publishedVersion: config.draftVersion + 1,
-        publishedAt: new Date(),
-        publishedBy: req.user?._id,
-      },
-      $inc: { draftVersion: 1 },
-    },
-    { new: true, runValidators: true },
-  ).lean();
-  if (!config?.published) throw new AppError(400, 'VALIDATION_ERROR', 'No draft to publish.');
+  const view = await site.publishSite(req.params.organizationId, req.user._id);
   await recordAction({
-    actorId: req.user._id, action: 'SITE_PUBLISH', targetId: organizationId, targetType: 'Organization',
-    metadata: {}, req,
+    actorId: req.user._id, action: 'SITE_PUBLISH', targetId: req.org._id, targetType: 'Organization',
+    metadata: { version: view.version }, req,
   });
-  res.json({ site: config });
+  res.json({ site: view });
 });
 
+/** POST /api/v1/everybody/organizations/:organizationId/site/assets (multipart, field "file") */
 export const uploadAsset = asyncHandler(async (req, res) => {
-  const { organizationId } = req.params;
-  const { kind } = req.body;
-  if (!['logo', 'favicon', 'hero', 'image'].includes(kind)) {
-    throw new AppError(422, 'VALIDATION_ERROR', 'Invalid asset kind.');
-  }
-  // In v1 we just return a placeholder; real upload uses sharp/R2 pipeline
-  const asset = await OrgAsset.create({
-    organization: organizationId,
-    kind,
-    storageKey: `tmp/${organizationId}/${kind}-${Date.now()}`,
-    url: `/assets/tmp/${kind}-${Date.now()}.webp`,
-  });
-  res.status(201).json({ asset: { id: String(asset._id), kind, url: asset.url } });
+  const asset = await site.uploadSiteAsset(req.org, req.file, req.body.kind ?? 'image', req.user._id);
+  res.status(201).json({ asset });
+});
+
+/** POST /api/v1/everybody/organizations/:organizationId/questions/assets shares the same uploader. */
+export const uploadQuestionAsset = asyncHandler(async (req, res) => {
+  const asset = await site.uploadSiteAsset(req.org, req.file, 'image', req.user._id);
+  res.status(201).json({ asset });
 });

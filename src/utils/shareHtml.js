@@ -118,7 +118,34 @@ export const questionPageHtml = ({ question, url, imageUrl, clientUrl, appUrl })
 </html>`;
 };
 
-/** A revoked or unknown token. A 404 status with something a human can read. */
+/**
+ * A tenant site's share page.
+ *
+ * The same rule as the other two: the tags a crawler reads are in the first response, and the
+ * person is shown the school's card. There is no script, so the page does not redirect itself; the
+ * CTA points at the tenant's own address for whoever taps it.
+ */
+export const sitePageHtml = ({ site, url, imageUrl }) => {
+  const title = site.meta?.title ?? site.brand?.name ?? 'TestFlow for Everyone';
+  const description = site.meta?.description ?? 'Online practice exams.';
+  const imageAlt = `${title} share image`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    ${head({ title, description, url, imageUrl, imageAlt })}
+    <meta name="theme-color" content="${escapeHtml(site.meta?.themeColor ?? '#163a5f')}" />
+    <style>${LAYOUT}</style>
+  </head>
+  <body>
+    <img class="card" src="${escapeHtml(imageUrl)}" width="1200" height="630" alt="${escapeHtml(imageAlt)}" />
+    <a class="cta" href="${escapeHtml(url)}">Go to ${escapeHtml(title)}</a>
+    <p class="foot">Powered by TestFlow.</p>
+  </body>
+</html>`;
+};
+
+/** A revoked or unknown token, or an address with no site. A 404 a human can read. */
 export const missingPageHtml = () =>
   `<!DOCTYPE html>
 <html lang="en">

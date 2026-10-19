@@ -63,6 +63,8 @@ describe('Ads Manager (integration)', { skip }, () => {
     await webhook(r.json.reference);
     return r.json;
   };
+  // Earlier tests leave live campaigns behind; tests about serving start from a clean slate.
+  const isolate = () => m.Campaign.updateMany({ status: { $in: ['active', 'scheduled'] } }, { $set: { status: 'suspended' } });
   const completedSession = (student) => m.ExamSession.create({
     student: student._id, subject: new m.mongoose.Types.ObjectId(), subjectCode: 'CHM101', durationMinutes: 10, expiresAt: new Date(),
     questions: [{ question: new m.mongoose.Types.ObjectId(), stem: 'q', options: ['a', 'b'], correctOption: 0 }], totalQuestions: 1, status: 'submitted',
@@ -217,6 +219,7 @@ describe('Ads Manager (integration)', { skip }, () => {
   });
 
   it('serving: only approved+active+unexpired ads; expiry enforced at serve time; one ad per session', async () => {
+    await isolate();
     const a = await mkUser('advertiser', 8);
     const admin = await mkUser('admin', 4);
     const s = await mkUser('student', 2);
@@ -251,6 +254,7 @@ describe('Ads Manager (integration)', { skip }, () => {
   });
 
   it('events: impression criteria, dedupe by eventId & per-serve, concurrent duplicates count once', async () => {
+    await isolate();
     const a = await mkUser('advertiser', 9);
     const admin = await mkUser('admin', 5);
     const s = await mkUser('student', 5);
@@ -397,6 +401,7 @@ describe('Ads Manager (integration)', { skip }, () => {
     });
 
     it('logs a served decision (candidates, scores, selection) with outcomes linked by serveId and deduped', async () => {
+    await isolate();
       const a = await mkUser('advertiser', 30); const admin = await mkUser('admin', 30); const s = await mkUser('student', 30);
       await liveCampaign(a, admin);
       const sess = await completedSession(s);
@@ -420,6 +425,7 @@ describe('Ads Manager (integration)', { skip }, () => {
     });
 
     it('privacy: stored records hold no student/session ids, hashes or campaign content', async () => {
+    await isolate();
       const a = await mkUser('advertiser', 31); const admin = await mkUser('admin', 31); const s = await mkUser('student', 31);
       const c = await liveCampaign(a, admin, { title: 'ZZ-UNIQUE-TITLE-ZZ' });
       const sess = await completedSession(s);
@@ -460,6 +466,7 @@ describe('Ads Manager (integration)', { skip }, () => {
     });
 
     it('campaign purge does NOT delete training records', async () => {
+    await isolate();
       const a = await mkUser('advertiser', 35); const admin = await mkUser('admin', 35); const s = await mkUser('student', 35);
       const c = await liveCampaign(a, admin);
       const { serveId } = (await serve(s, await completedSession(s))).json.ad;

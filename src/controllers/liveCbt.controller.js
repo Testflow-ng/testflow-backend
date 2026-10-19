@@ -76,6 +76,11 @@ export const getMyResult = asyncHandler(async (req, res) => {
   res.json({ result });
 });
 
+export const participantResult = asyncHandler(async (req, res) => {
+  const result = await liveCbt.getParticipantResult(req.user._id, req.params.code, req.params.userId);
+  res.json({ result });
+});
+
 export const hostDashboard = asyncHandler(async (req, res) => {
   const dashboard = await liveCbt.hostDashboard(req.user._id, req.params.code);
   res.json({ dashboard });

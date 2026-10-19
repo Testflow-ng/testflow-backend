@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { connectDB, disconnectDB } from '../config/db.js';
 import { PlanDefinition } from '../models/PlanDefinition.js';
+import { PLAN_ENTITLEMENTS } from '../config/planFeatures.js';
 import { logger } from '../utils/logger.js';
 
 const proPriceKobo = 700000; // ₦7,000
@@ -9,21 +10,23 @@ const studioPriceKobo = 2000000; // ₦20,000
 /** The plan catalogue. Prices are in minor units (kobo). */
 export const PLAN_SEED = [
   {
+    key: 'free',
+    name: 'Free',
+    priceMinor: 0,
+    currency: 'NGN',
+    interval: 'month',
+    available: true,
+    entitlements: { ...PLAN_ENTITLEMENTS.free },
+    sortOrder: 0,
+  },
+  {
     key: 'pro',
     name: 'Pro',
     priceMinor: proPriceKobo,
     currency: 'NGN',
     interval: 'month',
     available: true,
-    entitlements: {
-      adsEnabled: true,
-      maxStudents: null,
-      maxActiveExams: null,
-      maxExamsPerMonth: null,
-      customDomain: false,
-      storageMb: null,
-      communityEnabled: false,
-    },
+    entitlements: { ...PLAN_ENTITLEMENTS.pro },
     sortOrder: 1,
   },
   {
@@ -33,15 +36,7 @@ export const PLAN_SEED = [
     currency: 'NGN',
     interval: 'month',
     available: true,
-    entitlements: {
-      adsEnabled: false,
-      maxStudents: 500,
-      maxActiveExams: 50,
-      maxExamsPerMonth: 100,
-      customDomain: true,
-      storageMb: 500,
-      communityEnabled: true,
-    },
+    entitlements: { ...PLAN_ENTITLEMENTS.studio },
     sortOrder: 2,
   },
 ];

@@ -1,14 +1,23 @@
 import mongoose from 'mongoose';
+import { PLAN_KEYS as PLAN_KEY_LIST } from '../config/planFeatures.js';
 
-export const PLAN_KEYS = Object.freeze(['pro', 'studio']);
+export const PLAN_KEYS = Object.freeze([...PLAN_KEY_LIST]);
 
 const entitlementsSchema = new mongoose.Schema({
   adsEnabled: { type: Boolean, default: true },
+  // The feature matrix the console reads. `maxExams: null` is unlimited.
+  maxExams: { type: Number, default: null },
+  questionBanks: { type: Boolean, default: false },
+  announcements: { type: Boolean, default: false },
+  reports: { type: Boolean, default: false },
+  paidExams: { type: Boolean, default: false },
+  liveCbt: { type: Boolean, default: false },
   maxStudents: { type: Number, default: null },
   maxActiveExams: { type: Number, default: null },
   maxExamsPerMonth: { type: Number, default: null },
   customDomain: { type: Boolean, default: false },
   storageMb: { type: Number, default: null },
+  maxImages: { type: Number, default: null },
   communityEnabled: { type: Boolean, default: false },
 });
 

@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+// Uppercase only: the join form uppercases input, so mixed-case codes used to
+// fail for participants. Ambiguous characters (0/O, 1/I/L) stay excluded.
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const codeLength = (length) => {
   const bytes = crypto.randomBytes(length);

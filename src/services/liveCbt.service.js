@@ -16,8 +16,16 @@ const SHARE_CODE = /^[A-Za-z2-9]{6,16}$/;
 
 const shareUrlFor = (shareCode) => `${config.CLIENT_URL.replace(/\/$/, '')}/live-cbt/${shareCode}`;
 
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const loadExamByCode = async (shareCode) => {
-  const exam = await LiveExam.findOne({ shareCode });
+  // Codes are issued uppercase (the join form uppercases what participants
+  // type). The case-insensitive fallback keeps rooms created before that rule
+  // reachable.
+  const normalized = String(shareCode).trim().toUpperCase();
+  const exam =
+    (await LiveExam.findOne({ shareCode: normalized })) ??
+    (await LiveExam.findOne({ shareCode: { $regex: `^${escapeRegExp(normalized)}$`, $options: 'i' } }));
   if (!exam) throw new AppError(404, 'LIVE_EXAM_NOT_FOUND', 'Examination not found.');
   return exam;
 };
@@ -674,6 +682,33 @@ const toCorrectionView = (exam, participant) => {
   };
 };
 
+/**
+ * A participant-facing standings row. Deliberately narrow: the opaque user id (so a client can
+ * mark the caller), the display name, and the numbers the Hall of Fame shows. Never an email.
+ */
+const leaderboardRows = (participants, meId = null) =>
+  participants.map((p) => ({
+    userId: String(p.user?._id ?? p.user),
+    displayName: p.displayName,
+    rank: p.rank ?? null,
+    score: p.score ?? null,
+    correctCount: p.correctCount ?? null,
+    accuracy: p.accuracy ?? null,
+    timeTakenSeconds: p.timeTakenSeconds ?? null,
+    attemptStatus: p.attemptStatus,
+    isYou: meId != null && String(p.user?._id ?? p.user) === String(meId),
+  }));
+
+/** The ranked board, already submitted or timed out, best rank first. */
+const boardParticipants = (examId) =>
+  LiveParticipant.find({
+    liveExam: examId,
+    status: 'approved',
+    attemptStatus: { $in: ['submitted', 'timed_out'] },
+  })
+    .sort({ rank: 1, score: -1, timeTakenSeconds: 1 })
+    .lean();
+
 export const getMyResult = async (userId, shareCode) => {
   const exam = await loadExamByCode(shareCode);
   if (exam.status !== 'results_published') {
@@ -686,7 +721,33 @@ export const getMyResult = async (userId, shareCode) => {
   if (participant.attemptStatus !== 'submitted' && participant.attemptStatus !== 'timed_out') {
     throw new AppError(409, 'NO_SUBMISSION', 'No submission found for this participant.');
   }
-  return toCorrectionView(exam, participant);
+  const board = await boardParticipants(exam._id);
+  return { ...toCorrectionView(exam, participant), leaderboard: leaderboardRows(board, userId) };
+};
+
+/**
+ * The host reviewing one participant's sit: the same scored, corrected paper the participant sees,
+ * plus their place on the board. Available once the sitting has ended, so a host can read a paper
+ * before publishing the results.
+ */
+export const getParticipantResult = async (hostId, shareCode, userId) => {
+  const exam = await loadExamByCode(shareCode);
+  requireHost(exam, hostId);
+  if (!['completed', 'results_published'].includes(exam.status)) {
+    throw new AppError(409, 'EXAM_NOT_ENDED', 'Open a participant result once the sitting has ended.');
+  }
+  if (!OBJECT_ID.test(String(userId))) {
+    throw new AppError(400, 'INVALID_PARTICIPANT', 'Invalid participant id.');
+  }
+  const participant = await LiveParticipant.findOne({ liveExam: exam._id, user: userId });
+  if (!participant || participant.status !== 'approved') {
+    throw new AppError(404, 'PARTICIPANT_NOT_FOUND', 'That student is not part of this session.');
+  }
+  if (!['submitted', 'timed_out'].includes(participant.attemptStatus)) {
+    throw new AppError(409, 'NO_SUBMISSION', 'That student has not submitted a paper.');
+  }
+  const board = await boardParticipants(exam._id);
+  return { ...toCorrectionView(exam, participant), displayName: participant.displayName, leaderboard: leaderboardRows(board, userId) };
 };
 
 export const hostDashboard = async (hostId, shareCode) => {

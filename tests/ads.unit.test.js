@@ -360,7 +360,10 @@ describe('centralized identity helpers', async () => {
     assert.equal(adv.set.role, 'student');
     assert.equal(planMembership({ role: 'student', memberships: [{ product: 'student' }] }, false).action, 'skip'); // idempotent
     assert.equal(planMembership({ role: 'admin' }, false).action, 'skip');
-    assert.equal(planMembership({ role: 'admin', isEmailVerified: false }, true).action, 'review'); // ads profile on unverified email
+    assert.equal(planMembership({ role: 'admin', isEmailVerified: false }, true).action, 'review'); // ads profile on unverified email, nothing else to migrate
+    const partial = planMembership({ role: 'student', isEmailVerified: false }, true);
+    assert.deepEqual(partial.memberships.map((m) => m.product), ['student']); // own role still migrates
+    assert.ok(partial.review); // ...but ads is not linked on an unverified email
     assert.deepEqual(planMembership({ role: 'student', isEmailVerified: true }, true).memberships.map((m) => m.product), ['student', 'ads']);
   });
 });

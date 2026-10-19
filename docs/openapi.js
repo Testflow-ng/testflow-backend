@@ -53,7 +53,7 @@ window.testflowOpenApi = {
     { name: 'Advertising', description: 'Provider-aware advertising: which provider may run on which placement, for whom. Separate from the Testflow Ads marketplace.' },
     { name: 'Billing', description: 'The student pass that removes advertising, unlocks hosting a live CBT session and opens the Library' },
     { name: 'Library', description: 'The book shelf, the reader, bookmarks and reading progress. Browsing, bookmarks and progress are free; reading a page and downloading a file are part of the Student Pass.' },
-    { name: 'Everybody', description: 'Organization accounts (the Everybody product): the organization, its members, invitations, org subscriptions and the hosted site builder' },
+    { name: 'Everybody', description: 'Organization accounts (the Everybody product): the organization, its members, invitations, org subscriptions, the console (exams, question bank, students, the organization library, payouts, earnings, domains) and the hosted site builder, plus the tenant site API its students sign in to' },
     { name: 'Live CBT', description: 'Host-run live sittings joined by share link: the waiting room, approvals, question delivery, submission and results. Hosting needs the `live_cbt_host` entitlement; joining is free. The socket at `WS /ws/live-cbt/{shareCode}` pushes the same events as the SSE stream.' },
   ],
   paths: {
@@ -446,23 +446,150 @@ Object.assign(window.testflowOpenApi.paths, {
   },
 });
 
-// --- everybody: the site builder (mounted under /v1/everybody/site) and the super-admin console ---
+// --- everybody: the console (exams, questions, students, library, money, domains), the site
+// builder and the super-admin console. The organization is always a path segment, never the body. ---
+const examId = { name: 'examId', in: 'path', required: true, schema: ref('ObjectId') };
+const questionId = { name: 'questionId', in: 'path', required: true, schema: ref('ObjectId') };
+const bookId = { name: 'bookId', in: 'path', required: true, schema: ref('ObjectId') };
+const bankId = { name: 'bankId', in: 'path', required: true, schema: ref('ObjectId') };
+const domainId = { name: 'domainId', in: 'path', required: true, schema: ref('ObjectId') };
+
 Object.assign(window.testflowOpenApi.paths, {
-  [`${api}/v1/everybody/site/templates`]: {
+  [`${api}/v1/everybody/templates`]: {
     get: operation('List the site templates', { response: ref('SiteTemplateList') }),
   },
-  [`${api}/v1/everybody/site/{organizationId}/site`]: {
-    get: operation('Get a site config', { parameters: [orgId], response: ref('SiteResponse'), description: 'Returns the draft and the published config. Owner or admin.' }),
-    patch: operation('Edit the site draft', { parameters: [orgId], body: ref('SiteDraftInput'), response: ref('SiteResponse'), errors: true, description: 'Owner or admin. Bumps the draft version; `publish` is what makes it public.' }),
+  [`${api}/v1/everybody/organizations/{organizationId}/site`]: {
+    get: operation('Get the site config', { parameters: [orgId], response: ref('SiteResponse'), description: 'Owner or admin. The flat document the console edits: brand, landing, portal, footer, pages and the publish state.' }),
+    patch: operation('Edit the site draft', { parameters: [orgId], body: ref('SitePatchInput'), response: ref('SiteResponse'), errors: true, description: 'Owner or admin. Merges the fields sent (brand and pages field by field, block lists replaced). Publishing is what makes it public.' }),
   },
-  [`${api}/v1/everybody/site/{organizationId}/site/preview`]: {
-    post: operation('Preview the draft', { parameters: [orgId], response: ref('SitePreviewResponse'), description: 'Returns the draft and its version. The preview link lives for 300 seconds.' }),
+  [`${api}/v1/everybody/organizations/{organizationId}/site/preview`]: {
+    post: operation('Render the draft', { parameters: [orgId], response: ref('SitePreviewResponse'), description: 'Owner or admin. Returns the draft as it would publish, so the console can show it before anyone else sees it.' }),
   },
-  [`${api}/v1/everybody/site/{organizationId}/site/publish`]: {
-    post: operation('Publish the draft', { parameters: [orgId], response: ref('SiteResponse'), errors: true, description: 'Copies the draft over the published config. An empty draft returns `400 VALIDATION_ERROR`.' }),
+  [`${api}/v1/everybody/organizations/{organizationId}/site/publish`]: {
+    post: operation('Publish the draft', { parameters: [orgId], response: ref('SiteResponse'), errors: true, description: 'Owner or admin. Copies the draft over the published copy, which is what the public site and the share image read.' }),
   },
-  [`${api}/v1/everybody/site/{organizationId}/site/assets`]: {
-    post: operation('Register a site asset', { parameters: [orgId], body: ref('SiteAssetInput'), response: ref('SiteAssetResponse'), created: true, errors: true, description: 'v1 stores the asset row and returns a placeholder URL; the sharp/R2 upload pipeline lands later.' }),
+  [`${api}/v1/everybody/organizations/{organizationId}/site/assets`]: {
+    post: operation('Upload a site image', { parameters: [orgId], response: ref('SiteAssetResponse'), created: true, errors: true, description: 'Owner or admin. multipart/form-data with the file in the `file` field and `kind` in the body (logo, favicon, hero or image). 2 MB; png, jpeg or webp. `503 STORAGE_NOT_CONFIGURED` when storage is off.' }),
+  },
+  // --- exams ---
+  [`${api}/v1/everybody/organizations/{organizationId}/exams`]: {
+    get: operation('List the organization exams', { parameters: [orgId, page, limit, { name: 'status', in: 'query', schema: { type: 'string', enum: ['draft', 'published', 'archived'] }, description: 'The serviced enum value is `archived`; the console currently writes `draft` and `published`.' }, { name: 'q', in: 'query', schema: { type: 'string' } }], response: ref('OrgExamListResponse') }),
+    post: operation('Create an exam', { parameters: [orgId], body: ref('OrgExamInput'), response: ref('OrgExamResponse'), created: true, errors: true, description: 'Owner, admin or examiner. A paid exam (`priceMinor > 0`) cannot be published until a payout account is live.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}`]: {
+    get: operation('Read one exam', { parameters: [orgId, examId], response: ref('OrgExamResponse'), description: 'The console opens an exam from here, then reads its questions.' }),
+    patch: operation('Update an exam', { parameters: [orgId, examId], body: ref('OrgExamUpdate'), response: ref('OrgExamResponse'), errors: true }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/questions`]: {
+    get: operation('List the questions in an exam', { parameters: [orgId, examId], response: ref('OrgQuestionListResponse'), description: 'In the order the owner arranged them.' }),
+    put: operation('Replace the questions in an exam', { parameters: [orgId, examId], body: { type: 'object', required: ['questionIds'], properties: { questionIds: { type: 'array', items: ref('ObjectId') } } }, response: ref('OrgExamResponse'), errors: true, description: 'Every id must be a question this organization owns, otherwise `422 VALIDATION_ERROR`.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/results`]: {
+    get: operation('Read the results of an exam', { parameters: [orgId, examId, page, limit], response: ref('OrgExamResultsResponse'), description: 'Every submitted attempt, newest first, with `summary: { attempts, average, highest, lowest }`. Always real scores, whatever `showCorrections` says.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/publish`]: {
+    post: operation('Publish an exam', { parameters: [orgId, examId], response: ref('OrgExamResponse'), errors: true, description: '`422 PAYOUT_REQUIRED` when it is paid and no payout account is live.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/unpublish`]: {
+    post: operation('Take an exam back to draft', { parameters: [orgId, examId], response: ref('OrgExamResponse') }),
+  },
+  // --- questions ---
+  [`${api}/v1/everybody/organizations/{organizationId}/questions`]: {
+    get: operation('List the question bank', { parameters: [orgId, page, limit, { name: 'search', in: 'query', schema: { type: 'string' } }, { name: 'topic', in: 'query', schema: { type: 'string' } }, { name: 'difficulty', in: 'query', schema: { type: 'string', enum: ['easy', 'medium', 'hard'] } }, { name: 'bankId', in: 'query', schema: ref('ObjectId') }], response: ref('OrgQuestionListResponse') }),
+    post: operation('Add a question', { parameters: [orgId], body: ref('OrgQuestionInput'), response: ref('OrgQuestionResponse'), created: true, errors: true, description: 'Send `examId` or `bankId` to put the new question straight into that exam or bank.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/questions/bulk`]: {
+    post: operation('Bulk import questions', { parameters: [orgId, { name: 'examId', in: 'query', schema: ref('ObjectId') }, { name: 'bankId', in: 'query', schema: ref('ObjectId') }], body: { type: 'array', items: ref('OrgQuestionInput') }, response: ref('OrgQuestionBulkResult'), errors: true, description: 'Deliberately loose: good rows are saved and each bad row is reported back in `failed` with its row number, so one malformed line never sinks the batch. `examId` or `bankId` aims the import.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/questions/assets`]: {
+    post: operation('Upload a question image', { parameters: [orgId], response: ref('SiteAssetResponse'), created: true, errors: true, description: 'The same uploader and limits as a site image; the URL goes in `stemImageUrl` or `optionImages`.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/questions/{questionId}`]: {
+    patch: operation('Update a question', { parameters: [orgId, questionId], body: ref('OrgQuestionUpdate'), response: ref('OrgQuestionResponse'), errors: true }),
+    delete: operation('Delete a question', { parameters: [orgId, questionId], response: { type: 'object', properties: { id: ref('ObjectId'), deleted: { type: 'boolean' } } } }),
+  },
+  // --- question banks ---
+  [`${api}/v1/everybody/organizations/{organizationId}/question-banks`]: {
+    get: operation('List the question banks', { parameters: [orgId], response: ref('OrgBankListResponse') }),
+    post: operation('Create a question bank', { parameters: [orgId], body: ref('OrgBankInput'), response: ref('OrgBankResponse'), created: true, errors: true }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/question-banks/{bankId}`]: {
+    patch: operation('Rename a question bank', { parameters: [orgId, bankId], body: ref('OrgBankInput'), response: ref('OrgBankResponse'), errors: true }),
+    delete: operation('Delete a question bank', { parameters: [orgId, bankId], response: { type: 'object', properties: { id: ref('ObjectId'), deleted: { type: 'boolean' } } }, description: 'The questions filed in the bank are deleted with it; an exam that used them keeps its own ids pruned.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/question-banks/{bankId}/questions`]: {
+    get: operation('List the questions in a bank', { parameters: [orgId, bankId, page, limit, { name: 'search', in: 'query', schema: { type: 'string' } }], response: ref('OrgQuestionListResponse') }),
+  },
+  // --- students ---
+  [`${api}/v1/everybody/organizations/{organizationId}/students`]: {
+    get: operation('List the organization students', { parameters: [orgId, page, limit, { name: 'search', in: 'query', schema: { type: 'string' } }, { name: 'role', in: 'query', schema: ref('OrgRole') }], response: ref('OrgStudentListResponse'), description: 'Members of this organization, students by default, each with `attempts` (papers taken) and `average` (mean score).' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/students/{studentId}`]: {
+    get: operation('Read one student', { parameters: [orgId, { name: 'studentId', in: 'path', required: true, schema: ref('ObjectId') }], response: ref('OrgStudentDetailResponse'), description: 'The student and the papers they have taken, each with its score and the minutes it took.' }),
+  },
+  // --- community and reported questions ---
+  [`${api}/v1/everybody/organizations/{organizationId}/community/posts`]: {
+    get: operation('List the announcements', { parameters: [orgId], response: ref('OrgPostListResponse') }),
+    post: operation('Post an announcement', { parameters: [orgId], body: ref('OrgPostInput'), response: ref('OrgPostResponse'), created: true, errors: true }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/community/posts/{postId}`]: {
+    patch: operation('Edit, pin or hide a post', { parameters: [orgId, { name: 'postId', in: 'path', required: true, schema: ref('ObjectId') }], body: ref('OrgPostInput'), response: ref('OrgPostResponse'), errors: true }),
+    delete: operation('Delete a post', { parameters: [orgId, { name: 'postId', in: 'path', required: true, schema: ref('ObjectId') }], response: { type: 'object', properties: { id: ref('ObjectId'), deleted: { type: 'boolean' } } } }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/question-flags`]: {
+    get: operation('List the reported questions', { parameters: [orgId], response: ref('OrgFlagQueueResponse'), description: 'Each row carries `reportCount`, how many students reported that question.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/question-flags/{flagId}`]: {
+    patch: operation('Resolve, dismiss or reopen a report', { parameters: [orgId, { name: 'flagId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['open', 'resolved', 'dismissed'] }, resolution: { type: 'string', maxLength: 500 } } }, response: ref('OrgFlagResponse'), errors: true }),
+  },
+  // --- the organization library (books it gives its students) ---
+  [`${api}/v1/everybody/organizations/{organizationId}/library/books`]: {
+    get: operation('List the organization books', { parameters: [orgId], response: ref('OrgBookListResponse') }),
+    post: operation('Add a book', { parameters: [orgId], body: ref('OrgBookInput'), response: ref('OrgBookResponse'), created: true, errors: true, description: 'A paid book (`priceMinor > 0`) needs a live payout account.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/library/books/{bookId}`]: {
+    patch: operation('Update a book', { parameters: [orgId, bookId], body: ref('OrgBookUpdate'), response: ref('OrgBookResponse'), errors: true }),
+    delete: operation('Delete a book', { parameters: [orgId, bookId], response: { type: 'object', properties: { id: ref('ObjectId'), deleted: { type: 'boolean' } } } }),
+  },
+  // --- money: payout, earnings, payments ---
+  [`${api}/v1/everybody/banks`]: {
+    get: operation('List the payout banks', { response: ref('BanksResponse'), description: 'The provider list when configured, otherwise the built-in Nigerian bank table, so the payout form always renders.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/payout/verify`]: {
+    post: operation('Verify a payout account', { parameters: [orgId], body: ref('PayoutVerifyInput'), response: ref('PayoutVerifyResponse'), errors: true, description: 'Confirms the name on the account with the provider. `503 PAYMENT_NOT_CONFIGURED` when payments are off.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/payout`]: {
+    put: operation('Save the payout account', { parameters: [orgId], body: ref('PayoutSaveInput'), response: ref('PayoutResponse'), errors: true, description: 'Stores the verified account and its provider subaccount. Turning on settlement for the organization.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/earnings`]: {
+    get: operation('Read the earnings summary', { parameters: [orgId], response: ref('EarningsResponse'), description: 'Totals and a daily series, in integer kobo.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/payments`]: {
+    get: operation('List the organization payments', { parameters: [orgId, page, limit], response: ref('OrgPaymentsResponse') }),
+  },
+  // --- domains ---
+  [`${api}/v1/everybody/domains/check-subdomain`]: {
+    get: operation('Check whether a subdomain is free', { parameters: [{ name: 'name', in: 'query', required: true, schema: { type: 'string' } }], response: ref('SubdomainCheck'), description: 'A reserved or taken name comes back unavailable rather than as an error.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/domains`]: {
+    get: operation('List the organization domains', { parameters: [orgId], response: ref('OrgDomainListResponse') }),
+    post: operation('Add a domain', { parameters: [orgId], body: ref('OrgDomainInput'), response: ref('OrgDomainResponse'), created: true, errors: true, description: 'A Testflow subdomain is active at once; a custom domain starts pending and carries the DNS records to add.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/domains/{domainId}/verify`]: {
+    post: operation('Verify a custom domain', { parameters: [orgId, domainId], response: ref('OrgDomainResponse'), description: 'Checks the DNS records and flips the domain to active when they resolve.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/domains/{domainId}`]: {
+    delete: operation('Remove a domain', { parameters: [orgId, domainId], response: { type: 'object', properties: { id: ref('ObjectId'), removed: { type: 'boolean' } } } }),
+  },
+  // --- billing aliases the console reads (flat, organization in the query) ---
+  [`${api}/v1/everybody/plans`]: {
+    get: operation('List the organization plans', { response: ref('ConsolePlansResponse'), description: 'The plans an organization can buy, in display order.' }),
+  },
+  [`${api}/v1/everybody/subscription`]: {
+    get: operation('Read the current organization plan', { parameters: [{ name: 'organizationId', in: 'query', required: true, schema: ref('ObjectId') }], response: ref('ConsoleSubscriptionResponse'), description: '`404 NO_SUBSCRIPTION` when the organization has never subscribed.' }),
+  },
+  [`${api}/v1/everybody/payments`]: {
+    get: operation('List the organization plan payments', { parameters: [{ name: 'organizationId', in: 'query', required: true, schema: ref('ObjectId') }], response: ref('ConsoleSubscriptionPaymentsResponse') }),
   },
   // Super admin only. These lean on the `Administration` tag via the classifier below.
   [`${api}/v1/admin/everybody`]: {
@@ -488,6 +615,7 @@ Object.assign(window.testflowOpenApi.paths, {
 // free. Answers travel over HTTP; the stream is push-only.
 // ---------------------------------------------------------------------------
 const liveCode = { name: 'code', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z2-9]{6,16}$' }, description: 'The room share code.' };
+const liveParticipantId = { name: 'userId', in: 'path', required: true, schema: { type: 'string', pattern: '^[0-9a-fA-F]{24}$' }, description: 'The participant user id, as carried by `LiveRankingRow.userId`.' };
 
 Object.assign(window.testflowOpenApi.paths, {
   [`${api}/live-cbt`]: {
@@ -533,7 +661,10 @@ Object.assign(window.testflowOpenApi.paths, {
     post: operation('Submit the attempt', { parameters: [liveCode], body: ref('LiveSubmitInput'), response: ref('LiveSubmissionResponse'), errors: true, description: 'Approved participants only, and idempotent: a retry returns the stored outcome untouched. `answers` is the un-synced remainder of an offline paper; answers that arrive within two minutes of `endsAt` still count unless results are already out.' }),
   },
   [`${api}/live-cbt/{code}/result`]: {
-    get: operation('Get my result', { parameters: [liveCode], response: ref('LiveResultResponse'), description: 'Participants only, after `publish`. `corrections` carries each question, the caller selection, the correct option and the explanation, or is null when the host set `allowReview: false`.' }),
+    get: operation('Get my result', { parameters: [liveCode], response: ref('LiveResultResponse'), description: 'Participants only, after `publish`. Carries the caller scored paper, their corrections, and the public `leaderboard` of every submitted paper. `corrections` is null when the host set `allowReview: false`.' }),
+  },
+  [`${api}/live-cbt/{code}/participants/{userId}/result`]: {
+    get: operation('Read one participant result', { parameters: [liveCode, liveParticipantId], response: ref('LiveResultResponse'), description: 'Host only, once the sitting has ended (`409 EXAM_NOT_ENDED` before that). Returns the same scored, corrected paper the participant sees, so a host can review any paper from the board. 404 `PARTICIPANT_NOT_FOUND`, 409 `NO_SUBMISSION`.' }),
   },
   [`${api}/live-cbt/{code}/dashboard`]: {
     get: operation('Read the host dashboard', { parameters: [liveCode], response: ref('LiveDashboardResponse'), description: 'Host only. Totals, the ranked board, and per-question correct rates keyed by bank question id.' }),
@@ -569,6 +700,45 @@ Object.assign(window.testflowOpenApi.paths, {
   // Public: a shared link resolves without a session, so joining is one tap away.
   [`${api}/public/live-cbt/{code}`]: {
     get: operation('Read the public room landing', { security: false, parameters: [liveCode], response: ref('LiveLandingResponse'), description: 'No session needed, so a shared link always resolves: title, description, host name and live counts. Never question content, answer keys, emails or internal ids. Joining still needs an account.' }),
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Tenant site API. Opened on an organization's own address, the app states the
+// address in the `X-Tenant-Host` header (or it is read from the request). The
+// organization is never in the path, so a caller cannot reach a tenant it is
+// not standing on. Unknown or suspended addresses are a flat `404
+// TENANT_NOT_FOUND`.
+// ---------------------------------------------------------------------------
+const tenantHost = { name: 'X-Tenant-Host', in: 'header', required: false, schema: { type: 'string', example: 'grace.testflow.com.ng' }, description: 'The organization address. Read from the request host when absent.' };
+
+Object.assign(window.testflowOpenApi.paths, {
+  [`${api}/v1/public/site`]: {
+    get: operation('Read the tenant site', { security: false, parameters: [tenantHost, { name: 'host', in: 'query', schema: { type: 'string', description: 'The address, for calls made before the DNS record exists.' } }], response: ref('TenantSiteResponse'), description: 'The published surface only: brand, pages, portal, footer and the metadata a crawler reads. A never-published site is `404 TENANT_NOT_FOUND`.' }),
+  },
+  [`${api}/v1/public/site/og.png`]: {
+    get: operation('Read the tenant share image', { security: false, parameters: [tenantHost], response: { type: 'string', format: 'binary' }, description: 'A 1200x630 PNG on the organization brand, rendered on the server because a crawler runs nothing.' }),
+  },
+  [`${api}/v1/public/site/page`]: {
+    get: operation('Read the tenant share page as HTML', { security: false, parameters: [tenantHost], response: { type: 'string', description: 'HTML with the Open Graph tags in the first response' }, description: 'What a host rewrites a crawler to. An unknown address still gets a readable HTML 404 rather than a JSON error.' }),
+  },
+  [`${api}/v1/public/site/pages/{page}`]: {
+    get: operation('Read one tenant page', { security: false, parameters: [tenantHost, { name: 'page', in: 'path', required: true, schema: { type: 'string', enum: ['exams', 'results', 'library', 'community'] } }], response: ref('TenantSiteResponse'), description: '`404 PAGE_NOT_FOUND` when the owner switched the page off.' }),
+  },
+  [`${api}/v1/public/exams`]: {
+    get: operation('List the tenant exams', { parameters: [tenantHost], response: ref('TenantExamsResponse'), description: 'The published exams, for a signed-in student of this organization. Anyone else gets `403 NO_MEMBERSHIP`.' }),
+  },
+  [`${api}/v1/public/auth/me`]: {
+    get: operation('Read the signed-in tenant student', { parameters: [tenantHost], response: ref('TenantUserResponse'), description: '401 when there is no session; 403 NO_MEMBERSHIP when the session belongs to a student of another organization.' }),
+  },
+  [`${api}/v1/public/auth/register`]: {
+    post: operation('Register as a student of this organization', { security: false, parameters: [tenantHost], body: ref('TenantRegisterInput'), response: ref('TenantUserResponse'), created: true, errors: true, description: 'Creates the account and its student membership here, then signs in. An email that already has an account is `409 EMAIL_TAKEN`.' }),
+  },
+  [`${api}/v1/public/auth/login`]: {
+    post: operation('Sign in as a student of this organization', { security: false, parameters: [tenantHost], body: ref('TenantAuthInput'), response: ref('TenantUserResponse'), errors: true, description: 'Only a student of this organization. A valid account with a membership elsewhere is refused, so an account on one site is not usable on another.' }),
+  },
+  [`${api}/v1/public/auth/logout`]: {
+    post: operation('Sign out of the tenant site', { security: false, parameters: [tenantHost], response: { type: 'object' }, description: 'Clears the session cookies. Answers 204 with no body.' }),
   },
 });
 
@@ -640,7 +810,7 @@ if (userRole?.enum && !userRole.enum.includes('advertiser')) userRole.enum.push(
 Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
   if (Object.values(methods)[0]?.tags) return; // explicitly tagged (ads endpoints)
   if (/\/auth\/(memberships|switch-product|oauth\/)/.test(path)) { Object.values(methods).forEach((method) => { method.tags = ['Identity']; }); return; }
-  if (path.includes('/v1/everybody/organizations') || path.includes('/v1/everybody/invitations') || path.includes('/v1/everybody/subscriptions') || path.includes('/v1/everybody/site')) { Object.values(methods).forEach((method) => { method.tags = ['Everybody']; }); return; }
+  if (path.includes('/v1/everybody') || path.includes('/v1/public/')) { Object.values(methods).forEach((method) => { method.tags = ['Everybody']; }); return; }
   if (path.includes('/live-cbt')) { Object.values(methods).forEach((method) => { method.tags = ['Live CBT']; }); return; }
   const tag = path === '/health' ? 'Health'
     : path.includes('/public/') || path.startsWith('/r/') ? 'Public'
@@ -824,7 +994,7 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   SiteDraftInput: { allOf: [ref('SiteContent')], description: 'The draft PATCH body. Same shape as SiteContent: every field is optional, unknown keys are refused.' },
   SiteConfig: { type: 'object', description: 'Stored as a lean document, so the id is `_id`.', properties: { _id: ref('ObjectId'), organization: ref('ObjectId'), templateKey: str({ enum: ['classic', 'modern', 'minimal'] }), draft: ref('SiteContent'), published: { allOf: [ref('SiteContent')], description: 'Absent until the site is published once.' }, publishedVersion: int(), draftVersion: int(), createdAt: str({ format: 'date-time' }), updatedAt: str({ format: 'date-time' }) } },
   SiteResponse: { type: 'object', properties: { site: ref('SiteConfig') } },
-  SitePreviewResponse: { type: 'object', properties: { preview: { type: 'object', properties: { config: ref('SiteContent'), version: int() } }, expiresIn: int({ example: 300 }) } },
+  SitePreviewResponse: { type: 'object', properties: { preview: ref('SiteSurface'), version: int(), expiresIn: int({ example: 300 }) } },
   SiteAssetInput: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: str({ enum: ['logo', 'favicon', 'hero', 'image'] }) } },
   SiteAssetResponse: { type: 'object', properties: { asset: { type: 'object', properties: { id: ref('ObjectId'), kind: str(), url: str({ description: 'A placeholder until the upload pipeline lands.' }) } } } },
   OrgReasonInput: { type: 'object', additionalProperties: false, properties: { reason: str({ maxLength: 500 }) } },
@@ -870,8 +1040,9 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   LiveSubmission: { type: 'object', description: 'Score, correctCount and rank stay null until the host publishes the results.', properties: { attemptStatus: ref('LiveAttemptStatus'), score: { type: 'number', nullable: true }, correctCount: { type: 'integer', nullable: true }, rank: { type: 'integer', nullable: true }, submittedAt: str({ format: 'date-time' }), resultsReleased: { type: 'boolean' }, answersAccepted: int(), answersRejected: { type: 'boolean', description: 'True when a late batch arrived after the sitting was sealed.' } } },
   LiveSubmissionResponse: { type: 'object', properties: { result: ref('LiveSubmission') } },
   LiveCorrection: { type: 'object', properties: { index: int(), stem: str(), options: { type: 'array', items: str() }, selectedOption: { type: 'integer', nullable: true }, correctOption: int(), isCorrect: { type: 'boolean' }, explanation: { type: 'string', nullable: true }, marksAwarded: { type: 'number', description: 'The marks per question when correct, minus the negative marking when wrong, 0 when unanswered.' } } },
-  LiveResult: { type: 'object', properties: { shareCode: str(), title: str(), rank: { type: 'integer', nullable: true }, score: { type: 'number' }, totalPossible: { type: 'number', nullable: true }, correctCount: int(), incorrectCount: int(), unansweredCount: int(), accuracy: { type: 'number', nullable: true, description: 'A percentage, 2 decimal places.' }, timeTakenSeconds: { type: 'integer', nullable: true }, durationMinutes: int(), attemptStatus: ref('LiveAttemptStatus'), submittedAt: str({ format: 'date-time' }), corrections: { type: 'array', nullable: true, items: ref('LiveCorrection'), description: 'Null when the host set allowReview to false.' } } },
+  LiveResult: { type: 'object', properties: { shareCode: str(), title: str(), displayName: str({ description: 'Set on the host participant view; absent on the caller own result.' }), rank: { type: 'integer', nullable: true }, score: { type: 'number' }, totalPossible: { type: 'number', nullable: true }, correctCount: int(), incorrectCount: int(), unansweredCount: int(), accuracy: { type: 'number', nullable: true, description: 'A percentage, 2 decimal places.' }, timeTakenSeconds: { type: 'integer', nullable: true }, durationMinutes: int(), attemptStatus: ref('LiveAttemptStatus'), submittedAt: str({ format: 'date-time' }), corrections: { type: 'array', nullable: true, items: ref('LiveCorrection'), description: 'Null when the host set allowReview to false.' }, leaderboard: { type: 'array', description: 'Every submitted paper, ranked. `isYou` marks the caller on their own result, and the participant on the host participant view.', items: ref('LiveLeaderboardRow') } } },
   LiveResultResponse: { type: 'object', properties: { result: ref('LiveResult') } },
+  LiveLeaderboardRow: { type: 'object', description: 'One public standings row. No email, no answer data.', properties: { userId: ref('ObjectId'), displayName: str(), rank: { type: 'integer', nullable: true }, score: { type: 'number', nullable: true }, correctCount: { type: 'integer', nullable: true }, accuracy: { type: 'number', nullable: true, description: 'A percentage, 2 decimal places.' }, timeTakenSeconds: { type: 'integer', nullable: true }, attemptStatus: ref('LiveAttemptStatus'), isYou: { type: 'boolean', description: 'True for the caller. Always false on the host dashboard board.' } } },
   LiveRankingRow: { type: 'object', properties: { userId: ref('ObjectId'), displayName: str(), email: str({ format: 'email', nullable: true }), attemptStatus: ref('LiveAttemptStatus'), score: { type: 'number', nullable: true }, correctCount: { type: 'integer', nullable: true }, accuracy: { type: 'number', nullable: true }, timeTakenSeconds: { type: 'integer', nullable: true }, rank: { type: 'integer', nullable: true }, sequenceNumber: { type: 'integer', nullable: true } } },
   LiveQuestionStat: { type: 'object', properties: { questionId: ref('ObjectId'), stem: str(), attempts: int(), correct: int(), correctRate: { type: 'number', description: 'A percentage, 2 decimal places.' } } },
   LiveDashboard: { allOf: [ref('LiveRoom'), { type: 'object', properties: { totals: { type: 'object', properties: { approved: int(), started: int(), submitted: int(), timedOut: int(), noShow: int() } }, rankings: { type: 'array', items: ref('LiveRankingRow') }, questionStats: { type: 'array', items: ref('LiveQuestionStat') } } }] },
@@ -917,4 +1088,169 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   ReadingEntry: { type: 'object', properties: { bookId: ref('ObjectId'), page: int(), percent: int(), updatedAt: str({ format: 'date-time' }), book: ref('Book') } },
   ReadingResponse: { type: 'object', properties: { reading: { type: 'array', items: ref('ReadingEntry'), description: 'Every book this student has opened, newest activity first. An empty array is a normal answer.' } } },
   BookDownloadResponse: { type: 'object', properties: { url: str({ format: 'uri', description: 'Short-lived signed URL with Content-Disposition set. The storage key itself is never returned.' }), fileName: str({ example: 'MTH101 - Elementary Mathematics I.pdf' }), sizeBytes: int(), expiresAt: str({ format: 'date-time' }) } },
+});
+
+// ---------------------------------------------------------------------------
+// The organization console (exams, questions, students, its own library, money,
+// domains, the site document) and the tenant site API. Money is integer kobo
+// throughout; lists are `{ items, page, limit, total }` unless noted.
+// ---------------------------------------------------------------------------
+Object.assign(window.testflowOpenApi.components.schemas, {
+  // --- the flat site document the console edits ---
+  SiteBrand: { type: 'object', properties: { name: str({ nullable: true, maxLength: 120 }), tagline: str({ nullable: true, maxLength: 160 }), logoUrl: str({ nullable: true }), logoAssetId: ref('ObjectId'), faviconUrl: str({ nullable: true }), faviconAssetId: ref('ObjectId'), primaryColor: str({ example: '#163a5f' }), accentColor: str({ example: '#f5c542' }), font: str({ example: 'inter' }) } },
+  SiteBlock: { type: 'object', description: 'A template-defined block. It carries its own id and type; the editor writes the fields the block needs.', properties: { id: str(), type: str(), heading: str(), text: str(), imageUrl: str(), ctaLabel: str(), ctaHref: str() } },
+  SiteSurface: { type: 'object', description: 'The editable surface. `landing` is the public page, `portal` the signed-in one; each has its own block list.', properties: { template: str({ enum: ['classic', 'modern', 'minimal'] }), brand: ref('SiteBrand'), landing: { type: 'object', properties: { sections: { type: 'array', items: ref('SiteBlock') } } }, portal: { type: 'object', properties: { welcome: { type: 'object', properties: { heading: str(), text: str(), imageUrl: str() } }, sections: { type: 'array', items: ref('SiteBlock') } } }, footer: { type: 'object', properties: { text: str(), links: { type: 'array', items: { type: 'object', properties: { label: str(), href: str() } } } } }, pages: { type: 'object', additionalProperties: { type: 'boolean' }, description: 'Which pages the owner left switched on.' } } },
+  SiteView: { allOf: [ref('SiteSurface')], description: 'The console document: the draft surface plus the published copy and the publish state.', properties: { version: int(), publishedAt: str({ format: 'date-time', nullable: true }), hasUnpublished: { type: 'boolean' }, published: { allOf: [ref('SiteSurface')], nullable: true, description: 'What the public sees. Null until the first publish.' } } },
+  SitePatchInput: { allOf: [ref('SiteSurface')], description: 'Every field optional. `brand` and `pages` merge field by field; the block lists are replaced.' },
+  SiteAssetResponse: { type: 'object', properties: { asset: { type: 'object', properties: { id: ref('ObjectId'), kind: str({ enum: ['logo', 'favicon', 'hero', 'image'] }), url: str({ format: 'uri' }), width: int({ nullable: true }), height: int({ nullable: true }), bytes: int(), contentType: str() } } } },
+
+  // --- exams ---
+  OrgExam: { type: 'object', properties: { id: ref('ObjectId'), title: str(), instructions: str(), mode: str({ enum: ['anytime', 'live'] }), startsAt: str({ format: 'date-time', nullable: true, description: 'Only meaningful in live mode: when everyone starts together.' }), durationMinutes: int(), questionCount: int({ description: 'Derived from questionIds.' }), questionIds: { type: 'array', items: ref('ObjectId') }, access: str({ enum: ['link', 'invited', 'code'] }), accessCode: str(), showCorrections: str({ enum: ['now', 'after_exam', 'score_only', 'hidden'] }), attemptsAllowed: int(), shuffleQuestions: { type: 'boolean' }, shuffleOptions: { type: 'boolean' }, marksPerQuestion: { type: 'number' }, negativeMarking: { type: 'number' }, priceMinor: int({ description: 'Integer kobo. 0 is a free exam.' }), currency: str({ example: 'NGN' }), status: str({ enum: ['draft', 'published', 'archived'] }), createdAt: str({ format: 'date-time', nullable: true }), updatedAt: str({ format: 'date-time', nullable: true }) } },
+  OrgExamInput: { type: 'object', required: ['title', 'durationMinutes'], properties: { title: str({ minLength: 1, maxLength: 200 }), instructions: str({ maxLength: 5000 }), mode: str({ enum: ['anytime', 'live'] }), startsAt: str({ maxLength: 40, nullable: true }), questionIds: { type: 'array', maxItems: 2000, items: ref('ObjectId') }, durationMinutes: int({ minimum: 1, maximum: 600 }), access: str({ enum: ['link', 'invited', 'code'] }), accessCode: str({ maxLength: 20 }), showCorrections: str({ enum: ['now', 'after_exam', 'score_only', 'hidden'] }), attemptsAllowed: int({ minimum: 1, maximum: 50 }), shuffleQuestions: { type: 'boolean' }, shuffleOptions: { type: 'boolean' }, marksPerQuestion: { type: 'number', minimum: 0, maximum: 100 }, negativeMarking: { type: 'number', minimum: 0, maximum: 100 }, priceMinor: int({ minimum: 0 }), currency: str({ minLength: 3, maxLength: 3 }) } },
+  OrgExamUpdate: { allOf: [ref('OrgExamInput')], description: 'All fields optional.' },
+  OrgExamResponse: { type: 'object', properties: { exam: ref('OrgExam') } },
+  OrgExamListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgExam') }, page: int(), limit: int(), total: int() } },
+  OrgExamResultRow: { type: 'object', properties: { id: ref('ObjectId'), studentName: str(), email: str({ format: 'email' }), scorePercent: { type: 'number' }, correct: int(), total: int(), timeMinutes: int(), submittedAt: str({ format: 'date-time' }) } },
+  OrgExamResultsResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgExamResultRow') }, summary: { type: 'object', properties: { attempts: int(), average: { type: 'number' }, highest: { type: 'number' }, lowest: { type: 'number' } } } } },
+
+  // --- questions ---
+  OrgQuestion: { type: 'object', properties: { id: ref('ObjectId'), bankId: ref('ObjectId'), stem: str(), stemImageUrl: str({ nullable: true }), options: { type: 'array', items: str() }, optionImages: { type: 'array', items: str({ nullable: true }) }, correctIndex: int(), topic: str({ nullable: true }), difficulty: str({ enum: ['easy', 'medium', 'hard'] }), explanation: str({ nullable: true }), explanationImageUrl: str({ nullable: true }), createdAt: str({ format: 'date-time' }) } },
+  OrgQuestionInput: { type: 'object', required: ['stem', 'options', 'correctIndex'], additionalProperties: false, properties: { stem: str({ minLength: 1, maxLength: 4000 }), stemImageUrl: str({ nullable: true, maxLength: 2048 }), options: { type: 'array', minItems: 2, maxItems: 6, items: str({ maxLength: 1000 }) }, optionImages: { type: 'array', maxItems: 6, items: str({ nullable: true, maxLength: 2048 }) }, correctIndex: int({ minimum: 0, maximum: 5 }), topic: str({ maxLength: 120 }), difficulty: str({ enum: ['easy', 'medium', 'hard'] }), explanation: str({ maxLength: 4000 }), explanationImageUrl: str({ nullable: true, maxLength: 2048 }), examId: ref('ObjectId'), bankId: ref('ObjectId') } },
+  OrgQuestionUpdate: { allOf: [ref('OrgQuestionInput')], description: 'All fields optional.' },
+  OrgQuestionResponse: { type: 'object', properties: { question: ref('OrgQuestion') } },
+  OrgQuestionListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgQuestion') }, page: int(), limit: int(), pages: int(), total: int() } },
+  OrgQuestionBulkResult: { type: 'object', properties: { imported: int(), failed: { type: 'array', items: { type: 'object', properties: { row: int({ description: '1-based line number.' }), problems: { type: 'array', items: str() } } } } } },
+
+  // --- students ---
+  OrgStudent: { type: 'object', properties: { id: ref('ObjectId'), userId: ref('ObjectId'), fullName: str(), email: str({ format: 'email' }), role: ref('OrgRole'), status: str({ enum: ['active', 'invited'] }), attempts: int(), joinedAt: str({ format: 'date-time', nullable: true }) } },
+  OrgStudentListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgStudent') }, page: int(), limit: int(), total: int() } },
+  OrgStudentDetailResponse: { type: 'object', properties: { student: ref('OrgStudent'), attempts: { type: 'array', items: ref('OrgExamResultRow') } } },
+
+  // --- question banks ---
+  OrgBank: { type: 'object', properties: { id: ref('ObjectId'), name: str(), description: str(), questionCount: int(), createdAt: str({ format: 'date-time', nullable: true }) } },
+  OrgBankInput: { type: 'object', properties: { name: str({ minLength: 2, maxLength: 80 }), description: str({ maxLength: 200 }) } },
+  OrgBankResponse: { type: 'object', properties: { bank: ref('OrgBank') } },
+  OrgBankListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgBank') }, total: int() } },
+
+  // --- community and reported questions ---
+  OrgPost: { type: 'object', properties: { id: ref('ObjectId'), type: str({ enum: ['announcement', 'discussion'] }), text: str(), pinned: { type: 'boolean' }, hidden: { type: 'boolean' }, time: str({ description: 'A short human date, because the card reads `time`.' }), createdAt: str({ format: 'date-time' }), updatedAt: str({ format: 'date-time' }) } },
+  OrgPostInput: { type: 'object', properties: { type: str({ enum: ['announcement', 'discussion'] }), text: str({ minLength: 1, maxLength: 5000 }), pinned: { type: 'boolean' }, hidden: { type: 'boolean' } } },
+  OrgPostResponse: { type: 'object', properties: { post: ref('OrgPost') } },
+  OrgPostListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgPost') }, total: int() } },
+  OrgFlag: { type: 'object', properties: { id: ref('ObjectId'), status: str({ enum: ['open', 'resolved', 'dismissed'] }), reason: str({ enum: ['wrong_answer', 'unclear', 'typo', 'other'] }), note: str(), resolution: str(), examTitle: str(), reportCount: int({ description: 'How many students reported this question.' }), studentName: str({ nullable: true }), question: ref('OrgQuestion'), createdAt: str({ format: 'date-time' }), resolvedAt: str({ format: 'date-time', nullable: true }) } },
+  OrgFlagQueueResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgFlag') }, counts: { type: 'object', properties: { open: int(), resolved: int(), dismissed: int() } } } },
+  OrgFlagResponse: { type: 'object', properties: { flag: ref('OrgFlag') } },
+
+  // --- the organization's own library ---
+  OrgBook: { type: 'object', properties: { id: ref('ObjectId'), title: str(), code: str(), description: str(), color: ref('BookColor'), priceMinor: int({ description: 'Integer kobo. 0 means the book is included.' }), currency: str({ example: 'NGN' }), visibility: str({ enum: ['all_students', 'group', 'paid'] }), previewPages: int(), pages: int(), fileName: str(), published: { type: 'boolean' }, createdAt: str({ format: 'date-time', nullable: true }) } },
+  OrgBookInput: { type: 'object', required: ['title'], properties: { title: str({ minLength: 1, maxLength: 200 }), code: str({ maxLength: 20 }), description: str({ maxLength: 2000 }), color: ref('BookColor'), priceMinor: int({ minimum: 0 }), currency: str({ minLength: 3, maxLength: 3 }), visibility: str({ enum: ['all_students', 'group', 'paid'] }), previewPages: int({ minimum: 0 }), pages: int({ minimum: 0 }), fileName: str({ maxLength: 300 }), published: { type: 'boolean' } } },
+  OrgBookUpdate: { allOf: [ref('OrgBookInput')], description: 'All fields optional.' },
+  OrgBookResponse: { type: 'object', properties: { book: ref('OrgBook') } },
+  OrgBookListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgBook') }, total: int() } },
+
+  // --- money ---
+  Bank: { type: 'object', properties: { name: str(), code: str(), slug: str({ nullable: true }) } },
+  BanksResponse: { type: 'object', properties: { banks: { type: 'array', items: ref('Bank') } } },
+  PayoutVerifyInput: { type: 'object', required: ['bankCode', 'accountNumber'], additionalProperties: false, properties: { bankCode: str(), accountNumber: str({ minLength: 10, maxLength: 10 }) } },
+  PayoutSaveInput: { type: 'object', required: ['bankCode', 'accountNumber', 'accountName', 'businessName'], additionalProperties: false, properties: { bankCode: str(), accountNumber: str({ minLength: 10, maxLength: 10 }), accountName: str({ maxLength: 120 }), businessName: str({ maxLength: 120 }) } },
+  Payout: { type: 'object', properties: { bankCode: str({ nullable: true }), accountNumber: str({ nullable: true }), accountName: str({ nullable: true }), businessName: str({ nullable: true }), status: str({ enum: ['none', 'verified', 'active'] }), subaccountCode: str({ nullable: true }), platformPercent: int() } },
+  PayoutResponse: { type: 'object', properties: { payout: ref('Payout') } },
+  PayoutVerifyResponse: { type: 'object', properties: { accountName: str(), bankCode: str(), accountNumber: str() } },
+  EarningsResponse: { type: 'object', properties: { earnings: { type: 'object', properties: { totals: { type: 'object', properties: { grossKobo: int(), orgShareKobo: int(), platformFeeKobo: int(), last30d: int() } }, series: { type: 'array', items: { type: 'object', properties: { date: str({ example: '2026-01-31' }), grossKobo: int() } } } } } } },
+  OrgPayment: { type: 'object', properties: { id: ref('ObjectId'), item: str({ description: 'What was bought: exam, book or pass.' }), itemType: str({ enum: ['exam', 'book', 'pass'] }), reference: str(), currency: str(), grossKobo: int(), platformFeeKobo: int(), orgShareKobo: int(), paystackFeeKobo: int(), status: str({ enum: ['pending', 'paid', 'failed', 'refunded'] }), paidAt: str({ format: 'date-time', nullable: true }) } },
+  OrgPaymentsResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgPayment') }, page: int(), limit: int(), total: int() } },
+
+  // --- domains ---
+  OrgDomain: { type: 'object', properties: { id: ref('ObjectId'), type: str({ enum: ['subdomain', 'custom'] }), hostname: str(), status: str({ enum: ['pending', 'active', 'failed'] }), isPrimary: { type: 'boolean' }, records: { type: 'array', description: 'Empty once the domain is active; otherwise the DNS records to add.', items: { type: 'object', properties: { type: str({ example: 'CNAME' }), host: str(), value: str() } } }, verifiedAt: str({ format: 'date-time', nullable: true }), expiresAt: str({ format: 'date-time', nullable: true }) } },
+  OrgDomainInput: { type: 'object', required: ['type', 'hostname'], additionalProperties: false, properties: { type: str({ enum: ['subdomain', 'custom'] }), hostname: str({ maxLength: 253 }) } },
+  OrgDomainResponse: { type: 'object', properties: { domain: ref('OrgDomain') } },
+  OrgDomainListResponse: { type: 'object', properties: { items: { type: 'array', items: ref('OrgDomain') }, total: int() } },
+  SubdomainCheck: { type: 'object', properties: { available: { type: 'boolean' }, hostname: str({ nullable: true }), reason: str({ nullable: true }) } },
+
+  // --- billing aliases the console reads ---
+  ConsolePlan: { type: 'object', properties: { key: str(), name: str(), priceMinor: int(), currency: str(), interval: str({ enum: ['month', 'year'] }), available: { type: 'boolean' }, adsEnabled: { type: 'boolean' }, entitlements: ref('OrgEntitlements') } },
+  ConsolePlansResponse: { type: 'object', properties: { plans: { type: 'array', items: ref('ConsolePlan') } } },
+  ConsoleSubscription: { type: 'object', properties: { id: str(), planKey: str(), planName: str(), status: str({ enum: ['pending', 'active', 'past_due', 'expired', 'cancelled'] }), priceMinor: int(), currency: str(), interval: str(), currentPeriodStart: str({ format: 'date-time', nullable: true }), currentPeriodEnd: str({ format: 'date-time', nullable: true }), cancelAtPeriodEnd: { type: 'boolean' }, pendingPlanKey: str({ nullable: true }), pendingPlanName: str({ nullable: true }), adsEnabled: { type: 'boolean' }, graceEndsAt: str({ format: 'date-time', nullable: true }), reference: str({ nullable: true }), provider: str({ nullable: true }) } },
+  ConsoleSubscriptionResponse: { type: 'object', properties: { subscription: ref('ConsoleSubscription') } },
+  ConsoleSubscriptionPayment: { type: 'object', properties: { id: str(), reference: str(), planName: str(), kind: str(), amountKobo: int(), currency: str(), status: str(), paidAt: str({ format: 'date-time', nullable: true }), receiptUrl: str({ nullable: true }) } },
+  ConsoleSubscriptionPaymentsResponse: { type: 'object', properties: { items: { type: 'array', items: ref('ConsoleSubscriptionPayment') }, total: int() } },
+
+  // --- the tenant site API ---
+  TenantSiteResponse: { type: 'object', properties: { organization: { type: 'object', properties: { id: ref('ObjectId'), name: str(), slug: str() } }, site: ref('SiteSurface'), meta: { type: 'object', properties: { title: str(), description: str(), ogImageUrl: str({ format: 'uri' }), themeColor: str(), faviconUrl: str({ nullable: true }), canonicalUrl: str({ format: 'uri' }) } } } },
+  TenantUserResponse: { type: 'object', properties: { user: ref('User') } },
+  TenantAuthInput: { type: 'object', required: ['email', 'password'], additionalProperties: false, properties: { email: str({ format: 'email' }), password: str({ minLength: 8 }) } },
+  TenantRegisterInput: { type: 'object', required: ['fullName', 'email', 'password'], additionalProperties: false, properties: { fullName: str({ minLength: 2, maxLength: 120 }), email: str({ format: 'email' }), password: str({ minLength: 8 }) } },
+  TenantExam: { type: 'object', properties: { id: ref('ObjectId'), title: str(), questionCount: int(), durationMinutes: int(), priceMinor: int() } },
+  TenantExamsResponse: { type: 'object', properties: { items: { type: 'array', items: ref('TenantExam') } } },
+  TenantAttempt: { type: 'object', properties: { id: ref('ObjectId'), examTitle: str(), totalQuestions: int(), endsAt: str({ format: 'date-time' }), questions: { type: 'array', items: { type: 'object' } } } },
+  TenantResult: { type: 'object', properties: { id: ref('ObjectId'), examTitle: str(), scorePercent: int({ nullable: true, description: 'Absent when the exam hides its score' }), correct: int({ nullable: true }), total: int({ nullable: true }), hidden: { type: 'boolean' }, corrections: { type: 'array', nullable: true }, submittedAt: str({ format: 'date-time' }) } },
+});
+
+// ---------------------------------------------------------------------------
+// Taking an exam on the tenant site, paid checkout, question import, plan
+// changes and the Hall of Fame board.
+// ---------------------------------------------------------------------------
+Object.assign(window.testflowOpenApi.paths, {
+  // --- the tenant sitting flow ---
+  [`${api}/v1/public/exams/{examId}`]: {
+    get: operation('Read one tenant exam', { parameters: [tenantHost, examId], response: { type: 'object', properties: { exam: ref('TenantExam') } }, description: 'The exam a student is about to sit. The answer key is never in this payload.' }),
+  },
+  [`${api}/v1/public/exams/{examId}/start`]: {
+    post: operation('Start a sitting', { parameters: [tenantHost, examId], response: { type: 'object', properties: { attempt: ref('TenantAttempt') } }, created: true, errors: true, description: 'The server writes `endsAt` now (for a live exam it is the same for everyone) and snapshots the questions, so a later bank edit cannot move this score. A paid exam without a verified payment is `402 PAYMENT_REQUIRED`; a live exam needs the organizer on Studio.' }),
+  },
+  [`${api}/v1/public/attempts/{attemptId}/answers`]: {
+    patch: operation('Save an answer', { parameters: [tenantHost, { name: 'attemptId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['questionId', 'selectedIndex'], properties: { questionId: ref('ObjectId'), selectedIndex: { type: 'integer', minimum: 0 } } }, response: { type: 'object' }, errors: true, description: 'Checked against the server clock; a past `endsAt` refuses the write.' }),
+  },
+  [`${api}/v1/public/attempts/{attemptId}/submit`]: {
+    post: operation('Submit a sitting', { parameters: [tenantHost, { name: 'attemptId', in: 'path', required: true, schema: ref('ObjectId') }], response: { type: 'object', properties: { result: ref('TenantResult') } }, errors: true, description: "Marked exactly once. What comes back is decided by the exam's `showCorrections`: `hidden` returns no score, not even here." }),
+  },
+  [`${api}/v1/public/results`]: {
+    get: operation('List my results', { parameters: [tenantHost, page, limit], response: { type: 'object', properties: { items: { type: 'array', items: ref('TenantResult') } } } }),
+  },
+  [`${api}/v1/public/results/{attemptId}`]: {
+    get: operation('Read one of my results', { parameters: [tenantHost, { name: 'attemptId', in: 'path', required: true, schema: ref('ObjectId') }], response: ref('TenantResult'), description: 'Corrections only when the exam\'s `showCorrections` allows it right now; `hidden` returns no score either.' }),
+  },
+  [`${api}/v1/public/announcements`]: {
+    get: operation('List the announcements', { parameters: [tenantHost, page, limit], response: { type: 'object' } }),
+  },
+  [`${api}/v1/public/exams/{examId}/flags`]: {
+    post: operation('Report a question', { parameters: [tenantHost, examId], body: { type: 'object', required: ['questionId'], properties: { questionId: ref('ObjectId'), reason: { type: 'string', maxLength: 500 } } }, response: { type: 'object' }, created: true, errors: true, description: 'Reporting the same question twice from one student is one report.' }),
+  },
+  [`${api}/v1/public/exams/{examId}/checkout`]: {
+    post: operation('Buy a paid exam', { parameters: [tenantHost, examId, { name: 'Idempotency-Key', in: 'header', required: false, schema: { type: 'string', maxLength: 100 } }], response: { type: 'object' }, created: true, errors: true, description: "Server-priced. The organizer is paid at source through their Paystack subaccount and the platform takes its percentage there. `402 PLAN_REQUIRED` when the organizer's plan does not include paid exams." }),
+  },
+  [`${api}/v1/public/payments/verify`]: {
+    get: operation('Verify an exam payment', { parameters: [tenantHost, { name: 'reference', in: 'query', required: true, schema: { type: 'string' } }], response: { type: 'object' }, errors: true, description: 'Re-checks with the provider, checks the amount and currency, and reports whether the exam is now unlocked. Idempotent.' }),
+  },
+  [`${api}/v1/public/payments/webhook`]: {
+    post: operation('Payment provider webhook (tenant)', { security: false, parameters: [{ name: 'x-paystack-signature', in: 'header', required: true, schema: { type: 'string' } }], response: { type: 'object' }, description: 'Called by the provider only. The HMAC-SHA512 over the raw body is verified, and the amount and currency must match the payment before the sitting is unlocked. Idempotent — duplicate deliveries are no-ops.' }),
+  },
+
+  // --- console: results CSV, attempt detail, import, plan changes ---
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/results.csv`]: {
+    get: operation('Download the results as CSV', { parameters: [orgId, examId], response: { type: 'string', format: 'binary' }, description: 'Streamed. A cell that starts `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with an apostrophe so a spreadsheet never runs it.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/attempts/{attemptId}`]: {
+    get: operation('Read one attempt', { parameters: [orgId, { name: 'attemptId', in: 'path', required: true, schema: ref('ObjectId') }], response: { type: 'object' }, description: "Owner, admin or examiner. Scoped to the organization, so another tenant's attempt is a flat `404`." }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/questions/import`]: {
+    post: operation('Import questions from CSV or ZIP', { parameters: [orgId, { name: 'examId', in: 'query', schema: ref('ObjectId') }, { name: 'bankId', in: 'query', schema: ref('ObjectId') }, { name: 'dryRun', in: 'query', schema: { type: 'boolean' } }], response: ref('OrgQuestionBulkResult'), errors: true, description: 'One multipart field `file`: a `questions.csv`, or a ZIP of `questions.csv` plus its images. Strict caps, parsed in memory: flat, one copy of each name, no Zip64, no encryption, no symlinks, no traversal, no bombs. `?dryRun=true` validates without writing; each bad row is reported, the rest are saved.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/questions/import/template`]: {
+    get: operation('Download the import CSV template', { parameters: [orgId], response: { type: 'string', format: 'binary' } }),
+  },
+  [`${api}/v1/everybody/subscriptions/{id}/upgrade`]: {
+    post: operation('Upgrade or schedule a downgrade', { parameters: [{ name: 'id', in: 'path', required: true, schema: ref('ObjectId') }, { name: 'Idempotency-Key', in: 'header', required: false, schema: { type: 'string', maxLength: 100 } }], body: { type: 'object', required: ['planKey'], properties: { planKey: { type: 'string', enum: ['free', 'pro', 'studio'] } } }, response: { type: 'object' }, errors: true, description: 'An upgrade charges the prorated difference and returns a checkout; a downgrade charges nothing and returns `200 {}` scheduled for the period end.' }),
+  },
+  [`${api}/v1/everybody/subscriptions/{id}/renew`]: {
+    post: operation('Renew early', { parameters: [{ name: 'id', in: 'path', required: true, schema: ref('ObjectId') }], response: { type: 'object' }, errors: true, description: 'Returns the same checkout shape as an upgrade; the paid days stack on the current period.' }),
+  },
+  [`${api}/v1/everybody/payments/verify`]: {
+    get: operation('Verify a plan payment', { parameters: [{ name: 'reference', in: 'query', required: true, schema: { type: 'string' } }], response: { type: 'object' }, errors: true, description: 'Activates the plan only after the provider confirms it; re-verifying is an idempotent no-op. The response carries `duplicate`.' }),
+  },
+
+  // --- Hall of Fame ---
+  [`${api}/leaderboard`]: {
+    get: operation('Read the Hall of Fame overall board', { parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 50, default: 10 } }, { name: 'level', in: 'query', schema: ref('Level') }, { name: 'period', in: 'query', schema: { type: 'string', enum: ['all', 'month', 'week'], default: 'all' } }], response: { type: 'object', properties: { leaderboard: { type: 'array', items: { type: 'object' } }, me: { type: 'object', nullable: true, description: "The caller's own rank, even when off the visible board" } } }, description: "Points are the sum of each student's best score per subject. The board shows usernames only, and opting out or leaving the username unset keeps a student off it. Cached a few minutes." }),
+  },
 });

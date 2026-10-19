@@ -232,17 +232,32 @@ Privacy (Nigeria Data Protection Act 2023 / NDPR — **considerations, not a com
 | Phase 3 (routing & domains: subdomains, OrgDomain, domain verification, site builder routes at `/v1/everybody/site`) | ✅ implemented; unit + integration tests written |
 | Phase 4 (website configuration: templates, SiteConfig, draft/publish, OrgAsset) | ✅ implemented; unit tests written |
 | Phase 5 (CBT organization integration: organization on Subject/Question/ExamSession, OrgExam, super-admin org routes) | ✅ implemented; organization index migration complete; OrgExam model + admin routes |
+| Console exams & questions (publish rules, `EXAM_LOCKED`, delete/archive, soft-delete, question images, CSV/ZIP import with template) | ✅ implemented; covered by `orgExamFlow.integration.test.js` |
+| Console results & students (summary, streamed `results.csv` with formula-injection guard, attempt detail, student record with `timeMinutes`) | ✅ implemented; covered by `orgExamFlow.integration.test.js` |
+| Payouts, earnings and the revenue split (`platformPercent` from `Settings`, Paystack subaccount, `grossKobo/platformFeeKobo/orgShareKobo/paystackFeeKobo`) | ✅ implemented; split recorded on every org payment |
+| Student paid exams (server-priced checkout, signed + idempotent webhook, verify, refund reversing the split) | ✅ implemented; covered by `orgExamFlow.integration.test.js` |
+| Plan checkout (`upgrade`/`renew`/`payments/verify` + subscription webhook, prorated upgrade, scheduled downgrade) | ✅ implemented; covered by `orgSubscriptionPayments.integration.test.js` |
+| Plan-lifecycle cron (`npm run subscription:lifecycle`): applies scheduled downgrades, unpublishes live/paid exams a downgraded plan forbids, emails the owner | ✅ implemented; covered by `orgSubscriptionPayments.integration.test.js` |
+| Tenant site API (`/api/v1/public`: site, auth, exams, start/save/submit, results with `showCorrections` incl. `hidden`, announcements, flag, paid checkout) | ✅ implemented; integration coverage for the sitting flow and cross-tenant 404 |
+| Domains (subdomain check/add, custom-domain DNS CNAME/TXT verify) | ✅ implemented |
+| Library gate (`library` entitlement, `402 PLAN_REQUIRED` on read/download only) | ✅ implemented; covered by `library.integration.test.js` |
+| Hall of Fame (`GET /api/leaderboard` overall board; `rank` and `me` on subject boards) | ✅ implemented; covered by `leaderboard.integration.test.js` |
+| Image intake hardening (real bytes, re-encode to WebP, strip EXIF, reject animated/oversized, `422 STORAGE_LIMIT`, `429 RATE_LIMITED`) and strict in-memory ZIP reader | ✅ implemented; unit-tested in `imports.unit.test.js` |
+| Test suite | ✅ 222 tests pass, 0 fail (`npm test` against `MONGODB_URI_TEST`) |
 
 ### 22.3 Unresolved product / infrastructure decisions
 1. **Name/URL:** "Everybody" (spec, URL `/everybody`) vs "Everyone" (OG copy) — confirm the public name.
 2. **Ads revenue share** with Pro organisations: none assumed; decide whether/how organisations earn.
 3. **Organisation ad opt-out / campaign placement targeting** (main vs org) — default is "all placements"; confirm.
-4. **Plan entitlement numbers** (student/exam/storage limits) for Pro vs Studio — only `adsEnabled` is specified; set initial limits.
+4. **Plan entitlement numbers** (student/exam/storage limits) — initial limits are set for Free/Pro/Studio (`src/config/planFeatures.js`, incl. `storageMb`/`maxImages`); confirm before launch. **Platform percentage** is a super-admin `Settings.platformPercent` (default 5); confirm the value.
 5. **Grace period (7d) and data-retention (12 months)** defaults; **recurring/auto-renewal** via provider authorisations (not in v1).
-6. **Upgrade/downgrade proration** policy as proposed in §17.
+6. **Upgrade/downgrade proration** — implemented as proposed in §17 (prorated upgrade, scheduled no-charge downgrade); confirm the rounding.
 7. **Custom-domain TLS/routing** mechanism (Vercel Domains API vs manual) and the wildcard DNS setup.
 8. Student invitation/e-mail delivery (the project has an email service but verification email is currently disabled) and **who may import students**.
 9. DPA/privacy notice wording and breach procedure (legal review).
 
 ### 22.4 Next steps
-Start phase 1. Before phase 5, run an audit of every `Subject`/`Question`/`ExamSession` query and aggregation (including `admin.controller`, `public.controller`, `subject.service`, `question.service`, `examSession.service`, live CBT) to confirm the default-deny scope is complete.
+- Before phase 5 shipped, audit every `Subject`/`Question`/`ExamSession` query and aggregation (including `admin.controller`, `public.controller`, `subject.service`, `question.service`, `examSession.service`, live CBT) to confirm the default-deny scope is complete.
+- Wire the lifecycle job (`npm run subscription:lifecycle`) to the production scheduler; it is the only path that applies scheduled downgrades and unpublishes the exams a downgraded plan forbids.
+- Live-provider work still unverified locally: Paystack checkout/verify/refund and the two webhooks, R2 storage, DNS verification, and TLS for custom domains. The service layer is tested with an injected fake provider; the network calls need a staging pass.
+- Remaining optional item: student notification-preferences sync (no preferences store yet).

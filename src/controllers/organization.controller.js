@@ -3,6 +3,7 @@ import { AppError } from '../utils/AppError.js';
 import * as orgs from '../services/organization.service.js';
 import { Subscription } from '../models/Subscription.js';
 import { PlanDefinition } from '../models/PlanDefinition.js';
+import * as subs from '../services/orgSubscription.service.js';
 import { recordAction } from '../services/audit.service.js';
 
 export const create = asyncHandler(async (req, res) => {
@@ -57,9 +58,14 @@ export const createSubscription = asyncHandler(async (req, res) => {
   if (!planKey || !['pro', 'studio'].includes(planKey)) {
     throw new AppError(422, 'VALIDATION_ERROR', 'planKey must be "pro" or "studio".');
   }
-  // One live subscription at a time. A pending one is already waiting on the provider, and letting
-  // a second through would stack two checkouts against the same org.
-  const existing = await Subscription.findOne({ organization: org._id, status: { $in: ['pending', 'active'] } });
+  // One live paid subscription at a time. A pending one is already waiting on the provider, and
+  // letting a second through would stack two checkouts against the same org. The default Free
+  // subscription is not "in progress": buying Pro or Studio is what replaces it.
+  const existing = await Subscription.findOne({
+    organization: org._id,
+    status: { $in: ['pending', 'active'] },
+    planKey: { $ne: 'free' },
+  });
   if (existing) throw new AppError(409, 'SUBSCRIPTION_EXISTS', 'Organization already has a subscription in progress.');
   const planDef = await PlanDefinition.findOne({ key: planKey }).lean();
   if (!planDef) throw new AppError(400, 'PLAN_UNAVAILABLE', `Plan "${planKey}" is not defined.`);
@@ -138,20 +144,75 @@ export const verify = asyncHandler(async (req, res) => {
     { new: true },
   );
   if (!updated) throw new AppError(400, 'SUBSCRIPTION_EXISTS', 'Subscription already processed or not pending.');
-  res.json({ subscription: orgs.subView(updated), entitlements: orgs.entitlementsFor(req.org._id) });
+  // One active plan. The Free default and any older paid plan give way to the one just paid for.
+  await Subscription.updateMany(
+    { organization: req.org._id, _id: { $ne: updated._id }, status: 'active' },
+    { $set: { status: 'cancelled' } },
+  );
+  res.json({ subscription: orgs.subView(updated), entitlements: await orgs.entitlementsFor(req.org._id) });
+});
+
+const loadOwnSub = async (req) => {
+  const sub = await Subscription.findOne({ _id: req.params.id, organization: req.org._id });
+  if (!sub) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
+  return sub;
+};
+
+/** POST /api/v1/everybody/subscriptions/:id/upgrade — immediate prorated checkout, or a scheduled downgrade. */
+export const upgradeSub = asyncHandler(async (req, res) => {
+  const sub = await loadOwnSub(req);
+  const result = await subs.upgradeSubscription({
+    org: req.org,
+    user: req.user,
+    sub,
+    planKey: req.body?.planKey,
+    idempotencyKey: req.get('idempotency-key') ?? null,
+  });
+  if (result.downgrade || result.noop) {
+    await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_DOWNGRADE', targetId: sub._id, targetType: 'Organization', metadata: { planKey: req.body?.planKey }, req });
+    return res.json({});
+  }
+  await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_UPGRADE', targetId: sub._id, targetType: 'Organization', metadata: { planKey: req.body?.planKey, reference: result.reference }, req });
+  return res.status(result.reused ? 200 : 201).json(result);
+});
+
+/** POST /api/v1/everybody/subscriptions/:id/renew — a full-period checkout for the current plan. */
+export const renewSub = asyncHandler(async (req, res) => {
+  const sub = await loadOwnSub(req);
+  const result = await subs.renewSubscription({
+    org: req.org,
+    user: req.user,
+    sub,
+    idempotencyKey: req.get('idempotency-key') ?? null,
+  });
+  await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_RENEW', targetId: sub._id, targetType: 'Organization', metadata: { reference: result.reference }, req });
+  res.status(result.reused ? 200 : 201).json(result);
+});
+
+/**
+ * GET /api/v1/everybody/payments/verify?reference=
+ * Flat because the callback page knows only the reference. Access is checked by the payer's
+ * membership of the organisation on the payment.
+ */
+export const verifySubPayment = asyncHandler(async (req, res) => {
+  const result = await subs.verifySubscriptionPayment(req.user._id, req.query.reference);
+  const orgId = result.payment?.organization ?? result.subscription?.organization;
+  res.json({
+    status: result.status,
+    duplicate: Boolean(result.duplicate),
+    payment: result.payment ? subs.paymentView(result.payment) : null,
+    subscription: result.subscription ? orgs.subView(result.subscription) : null,
+    entitlements: orgId ? await orgs.entitlementsFor(orgId) : null,
+  });
 });
 
 /**
  * POST /api/v1/everybody/subscriptions/webhook
- *
- * PLACEHOLDER, and deliberately fail-closed. The subscription payment path is unfinished: there is
- * no signature verifier, no single-winner claim on the payment, and no re-verification of the
- * amount against the provider (the Ads path in `services/ads/payment.service.js` is the pattern to
- * copy). Until that exists this refuses, so a provider retry can never be read as a granted
- * subscription. Replace it before pointing a live Paystack webhook here (a provider request carries
- * no cookie, so CSRF already lets it through; add the path to `SKIP_ALL` in `middleware/csrf.js`
- * only when it must also ignore an Origin).
+ * Paystack server-to-server: no cookie, so it is also exempted from the CSRF handshake. The
+ * signature covers the exact bytes (captured as `req.rawBody`), and the amount is checked against
+ * the payment before the plan is activated.
  */
-export const webhook = asyncHandler(async () => {
-  throw new AppError(501, 'NOT_IMPLEMENTED', 'Subscription webhook is not implemented yet.');
+export const webhook = asyncHandler(async (req, res) => {
+  const result = await subs.handleSubscriptionWebhook(req.rawBody, req.get('x-paystack-signature'), req.body);
+  res.json(result);
 });

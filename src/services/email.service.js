@@ -58,6 +58,35 @@ export const sendVerificationEmail = async (user, token) => {
   });
 };
 
+/**
+ * Tell an organiser what a plan change did to their exams. Only the exams a downgrade unpublished
+ * are named; nothing was deleted, so the mail is recoverable information, not a warning.
+ */
+export const sendPlanChangeEmail = async ({ to, name, orgName, planName, liveUnpublished = 0, paidUnpublished = 0 }) => {
+  const lines = [];
+  if (liveUnpublished) lines.push(`${liveUnpublished} scheduled Live CBT exam${liveUnpublished === 1 ? '' : 's'} (not yet started) were unpublished.`);
+  if (paidUnpublished) lines.push(`${paidUnpublished} paid exam${paidUnpublished === 1 ? '' : 's'} were unpublished so no new student is charged.`);
+  const detail = lines.join(' ') || 'No exams were affected.';
+  await send({
+    to,
+    subject: `Your ${orgName} plan changed`,
+    text: `Hello ${name}, ${orgName} is now on ${planName}. ${detail} Nothing was deleted: publish them again after you upgrade.`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #111;">
+        <h1 style="color: #2563eb; font-size: 22px; font-weight: bold; margin-bottom: 16px;">Your plan changed</h1>
+        <p style="font-size: 16px; line-height: 1.6;">
+          Hello ${escapeHtml(name)},<br><br>
+          <strong>${escapeHtml(orgName)}</strong> is now on the <strong>${escapeHtml(planName)}</strong>.
+        </p>
+        <p style="font-size: 16px; line-height: 1.6;">${escapeHtml(detail)}</p>
+        <p style="font-size: 14px; color: #666; margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px;">
+          Nothing was deleted. Publish the exams again after you upgrade.
+        </p>
+      </div>
+    `,
+  });
+};
+
 export const sendPasswordResetEmail = async (user, token) => {
   const url = `${config.CLIENT_URL}/reset-password?token=${token}`;
   await send({

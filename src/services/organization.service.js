@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Organization } from '../models/Organization.js';
 import { OrgMembership } from '../models/OrgMembership.js';
 import { OrgInvitation } from '../models/OrgInvitation.js';
+import { Subscription } from '../models/Subscription.js';
 import { AppError } from '../utils/AppError.js';
 import { scoped } from '../utils/orgScope.js';
 import { generateToken, hashToken } from '../utils/tokens.js';
@@ -10,7 +11,8 @@ import { RESERVED_SLUGS } from '../validators/everybody.schema.js';
 
 // Re-exported so the organization controller reaches every subscription-side helper through one
 // namespace (`orgs.subView`, `orgs.entitlementsFor`) instead of reaching into two services.
-export { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, ensureFreeSubscription } from './entitlements.js';
+export { entitlementsFor, ensureFreeSubscription };
 
 const INVITE_TTL_MS = 7 * 24 * 3600 * 1000;
 
@@ -36,6 +38,15 @@ export const orgView = (org) => ({
   status: org.status,
   contactEmail: org.contactEmail ?? null,
   timezone: org.timezone ?? null,
+  payout: {
+    bankCode: org.payout?.bankCode ?? null,
+    accountNumber: org.payout?.accountNumber ?? null,
+    accountName: org.payout?.accountName ?? null,
+    businessName: org.payout?.businessName ?? null,
+    status: org.payout?.status ?? 'none',
+    subaccountCode: org.payout?.subaccountCode ?? null,
+    platformPercent: org.payout?.platformPercent ?? 10,
+  },
   createdAt: org.createdAt ?? null,
   updatedAt: org.updatedAt ?? null,
 });
@@ -88,8 +99,11 @@ export const createOrganization = async (user, { name, slug, contactEmail, timez
   }
   try {
     await OrgMembership.create({ organization: org._id, user: user._id, role: 'owner', status: 'active' });
+    // Every organisation always has a subscription, and new ones start on Free.
+    await ensureFreeSubscription(org._id);
   } catch (e) {
     await Organization.deleteOne({ _id: org._id });
+    await Subscription.deleteMany({ organization: org._id }).catch(() => {});
     if (e?.code === 11000) throw new AppError(409, 'SUBDOMAIN_TAKEN', 'That subdomain is already taken.');
     throw e;
   }

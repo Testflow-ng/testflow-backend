@@ -29,8 +29,18 @@ export const listTopics = asyncHandler(async (req, res) => {
 
 export const getLeaderboard = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const leaderboard = await subjectService.getSubjectLeaderboard(id);
-  res.json({ leaderboard });
+  const { leaderboard, me } = await subjectService.getSubjectLeaderboard(id, req.user._id);
+  res.json({ leaderboard, me });
+});
+
+/** GET /api/leaderboard — the Hall of Fame overall board. */
+export const getOverallLeaderboard = asyncHandler(async (req, res) => {
+  const { limit, level, period } = req.query;
+  const { leaderboard, me } = await subjectService.getOverallLeaderboard(
+    { limit, level, period },
+    req.user._id,
+  );
+  res.json({ leaderboard, me });
 });
 
 export const togglePin = asyncHandler(async (req, res) => {

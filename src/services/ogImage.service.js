@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { MARK_BOX, questionCardSvg, resultCardSvg } from '../utils/cardSvg.js';
+import { MARK_BOX, questionCardSvg, resultCardSvg, siteCardSvg } from '../utils/cardSvg.js';
 
 /**
  * Rasterise the share cards.
@@ -48,3 +48,12 @@ export const resultCardPng = (share) => renderCard(resultCardSvg(share));
 
 /** The card for a public question, which never shows the answer. */
 export const questionCardPng = (question) => renderCard(questionCardSvg(question));
+
+/**
+ * The share card for a tenant site.
+ *
+ * Rendered without the TestFlow mark on purpose: the card already carries "Powered by TestFlow",
+ * and stamping the logo would put our brand where the school's should be. It is still rasterised
+ * here so every share image comes off one code path.
+ */
+export const siteCardPng = (site) => sharp(Buffer.from(siteCardSvg(site))).png({ compressionLevel: 9 }).toBuffer();

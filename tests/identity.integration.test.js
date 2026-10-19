@@ -234,7 +234,7 @@ describe('Centralized identity (integration)', { skip }, () => {
     assert.equal(reset.status, 200);
     assert.equal((await a.call('GET', '/auth/me')).status, 401);
     assert.equal((await b.call('GET', '/auth/me')).status, 401);
-    assert.equal((await b.call('POST', '/auth/refresh', { csrf: false })).status, 401);
+    assert.equal((await b.call('POST', '/auth/refresh')).status, 401);
     assert.equal((await client().call('POST', '/auth/login', { body: { email, password: pw } })).status, 401); // old password dead
     assert.equal((await client().call('POST', '/auth/login', { body: { email, password: 'NewPassw0rd1' } })).status, 200);
   });
@@ -244,7 +244,7 @@ describe('Centralized identity (integration)', { skip }, () => {
     await client().call('POST', '/auth/login', { body: { email, password: 'WrongPass123' } });
     await signIn(c, email, 'ads').catch(() => {});
     await signIn(c, email);
-    await c.call('POST', '/auth/memberships', { body: { product: 'ads', profile: { businessName: 'B' } } });
+    await c.call('POST', '/auth/memberships', { body: { product: 'ads', profile: { businessName: 'Biz' } } });
     await c.call('POST', '/auth/switch-product', { body: { product: 'ads' } });
     const user = await m.User.findOne({ email });
     for (const action of ['AUTH_REGISTER', 'AUTH_LOGIN', 'MEMBERSHIP_ADD', 'PRODUCT_SWITCH']) {
@@ -325,7 +325,7 @@ describe('Centralized identity (integration)', { skip }, () => {
     assert.deepEqual((await m.User.findById(s.insertedId).lean()).memberships.map((x) => x.product), ['student']);
     const adv = await m.User.findById(a.insertedId).lean();
     assert.deepEqual(adv.memberships.map((x) => x.product), ['ads']); assert.equal(adv.role, 'student');
-    assert.equal((await m.User.findById(adm.insertedId).lean()).memberships.length, 0);
+    assert.equal((await m.User.findById(adm.insertedId).lean()).memberships?.length ?? 0, 0);
     assert.deepEqual((await m.User.findById(unverified.insertedId).lean()).memberships.map((x) => x.product), ['student']); // ads NOT linked: email unverified
     assert.ok(real.review.some((r) => r.id === String(unverified.insertedId)));
 
