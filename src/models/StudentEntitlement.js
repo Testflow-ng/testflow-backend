@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
-/** What a student can hold. Both are granted by a plan or by an administrator. */
-export const ENTITLEMENT_KEYS = Object.freeze(['ad_free', 'live_cbt_host']);
+/** What a student can hold. Each is granted by a plan or by an administrator. */
+export const ENTITLEMENT_KEYS = Object.freeze(['ad_free', 'live_cbt_host', 'library']);
 
 /** Where a live entitlement came from. `plan` is reserved for a plan bundled without a purchase. */
 export const ENTITLEMENT_SOURCES = Object.freeze(['purchase', 'plan', 'admin']);

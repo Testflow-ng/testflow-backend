@@ -51,7 +51,8 @@ window.testflowOpenApi = {
     { name: 'Feedback', description: 'Product feedback from students, and the admin queue that answers it' },
     { name: 'Study', description: 'Reporting and saving a question, and the public link for a finished result' },
     { name: 'Advertising', description: 'Provider-aware advertising: which provider may run on which placement, for whom. Separate from the Testflow Ads marketplace.' },
-    { name: 'Billing', description: 'The student pass that removes advertising and unlocks hosting a live CBT session' },
+    { name: 'Billing', description: 'The student pass that removes advertising, unlocks hosting a live CBT session and opens the Library' },
+    { name: 'Library', description: 'The book shelf, the reader, bookmarks and reading progress. Browsing, bookmarks and progress are free; reading a page and downloading a file are part of the Student Pass.' },
     { name: 'Everybody', description: 'Organization accounts (the Everybody product): the organization, its members, invitations, org subscriptions and the hosted site builder' },
     { name: 'Live CBT', description: 'Host-run live sittings joined by share link: the waiting room, approvals, question delivery, submission and results. Hosting needs the `live_cbt_host` entitlement; joining is free. The socket at `WS /ws/live-cbt/{shareCode}` pushes the same events as the SSE stream.' },
   ],
@@ -657,12 +658,14 @@ Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
 });
 
 // ---------------------------------------------------------------------------
-// Provider-aware advertising (Google AdSense) and the student pass
+// Provider-aware advertising (Google AdSense), the student pass and the Library.
 //
-// Deliberately not under `/api/ads`: that prefix is the Testflow Ads marketplace, which this
-// surface does not touch. `eligible` means a provider is permitted, never that Google has an ad.
+// Advertising and billing are deliberately not under `/api/ads`: that prefix is the Testflow Ads
+// marketplace, which this surface does not touch. `tagged` is the shared operation builder for
+// every block below: it tags the operation explicitly and adds the responses the plain
+// `operation` helper does not.
 // ---------------------------------------------------------------------------
-const adv = (tag, summary, options = {}) => {
+const tagged = (tag, summary, options = {}) => {
   const op = operation(summary, options);
   op.tags = [tag];
   if (options.errors) op.responses['422'] = { $ref: '#/components/responses/ValidationError' };
@@ -670,6 +673,7 @@ const adv = (tag, summary, options = {}) => {
   if (options.rateLimited) op.responses['429'] = { $ref: '#/components/responses/RateLimited' };
   if (options.conflict) op.responses['409'] = { description: options.conflict, content: { 'application/json': { schema: ref('Error') } } };
   if (options.payment) op.responses['402'] = { description: options.payment, content: { 'application/json': { schema: ref('Error') } } };
+  if (options.forbidden) op.responses['403'] = { description: options.forbidden, content: { 'application/json': { schema: ref('Error') } } };
   if (options.unavailable) op.responses['503'] = { description: options.unavailable, content: { 'application/json': { schema: ref('Error') } } };
   if (options.admin) op.responses['403'] = { $ref: '#/components/responses/Forbidden' };
   return op;
@@ -677,50 +681,94 @@ const adv = (tag, summary, options = {}) => {
 
 Object.assign(window.testflowOpenApi.paths, {
   [`${api}/advertising/config`]: {
-    get: adv('Advertising', 'Provider switches, ad units, placements and configuration issues', { security: false, response: ref('AdvertisingConfig'), description: 'The frontend reads this before rendering anything. A provider that is asked for but not usable (missing publisher id) is reported and treated as disabled. Publisher ids and ad-unit slots are public identifiers, not credentials.' }),
+    get: tagged('Advertising', 'Provider switches, ad units, placements and configuration issues', { security: false, response: ref('AdvertisingConfig'), description: 'The frontend reads this before rendering anything. A provider that is asked for but not usable (missing publisher id) is reported and treated as disabled. Publisher ids and ad-unit slots are public identifiers, not credentials.' }),
   },
   [`${api}/advertising/placements`]: {
-    get: adv('Advertising', 'List the approved placement registry', { security: false, response: { type: 'object', properties: { placements: { type: 'array', items: ref('Placement') } } } }),
+    get: tagged('Advertising', 'List the approved placement registry', { security: false, response: { type: 'object', properties: { placements: { type: 'array', items: ref('Placement') } } } }),
   },
   [`${api}/advertising/placements/{id}`]: {
-    get: adv('Advertising', 'Get one placement', { security: false, parameters: [{ name: 'id', in: 'path', required: true, schema: ref('PlacementId') }], response: { type: 'object', properties: { placement: ref('Placement') } }, notFound: true }),
+    get: tagged('Advertising', 'Get one placement', { security: false, parameters: [{ name: 'id', in: 'path', required: true, schema: ref('PlacementId') }], response: { type: 'object', properties: { placement: ref('Placement') } }, notFound: true }),
   },
   [`${api}/advertising/eligibility`]: {
-    get: adv('Advertising', 'Decide which providers may serve on a placement, for this caller', { security: false, errors: true, parameters: [{ name: 'placement', in: 'query', required: true, schema: ref('PlacementId') }, { name: 'consent', in: 'query', schema: { type: 'string', enum: ['granted', 'denied', 'unknown'], default: 'unknown' }, description: 'An assertion, not proof. `denied` is always honoured; `granted` only satisfies GOOGLE_ADSENSE_REQUIRE_CONSENT.' }], response: ref('Eligibility'), description: 'Optional session: a guest gets the anonymous policy, a signed-in student gets theirs. `eligible` means the provider is permitted, never that Google returned a creative.' }),
+    get: tagged('Advertising', 'Decide which providers may serve on a placement, for this caller', { security: false, errors: true, parameters: [{ name: 'placement', in: 'query', required: true, schema: ref('PlacementId') }, { name: 'consent', in: 'query', schema: { type: 'string', enum: ['granted', 'denied', 'unknown'], default: 'unknown' }, description: 'An assertion, not proof. `denied` is always honoured; `granted` only satisfies GOOGLE_ADSENSE_REQUIRE_CONSENT.' }], response: ref('Eligibility'), description: 'Optional session: a guest gets the anonymous policy, a signed-in student gets theirs. `eligible` means the provider is permitted, never that Google returned a creative.' }),
   },
   [`${api}/advertising/admin/health`]: {
-    get: adv('Advertising', 'Advertising configuration health and aggregated counts', { admin: true, response: ref('AdvertisingHealth'), description: 'Aggregated counts only, never per-student data. Reporting status is reported honestly, with no fabricated revenue.' }),
+    get: tagged('Advertising', 'Advertising configuration health and aggregated counts', { admin: true, response: ref('AdvertisingHealth'), description: 'Aggregated counts only, never per-student data. Reporting status is reported honestly, with no fabricated revenue.' }),
   },
   [`${api}/advertising/admin/reporting`]: {
-    get: adv('Advertising', 'Google AdSense reporting integration status', { admin: true, response: { type: 'object', properties: { reporting: ref('ReportingStatus') } } }),
+    get: tagged('Advertising', 'Google AdSense reporting integration status', { admin: true, response: { type: 'object', properties: { reporting: ref('ReportingStatus') } } }),
   },
 
   [`${api}/billing/ad-free/products`]: {
-    get: adv('Billing', 'List the student plans that remove advertising', { security: false, response: { type: 'object', properties: { products: { type: 'array', items: ref('StudentPlan') } } }, description: 'Prices come from the server catalogue. Checkout takes a plan key and never a price.' }),
+    get: tagged('Billing', 'List the student plans that remove advertising', { security: false, response: { type: 'object', properties: { products: { type: 'array', items: ref('StudentPlan') } } }, description: 'Prices come from the server catalogue. Checkout takes a plan key and never a price. Every current pass removes ads, unlocks hosting a live CBT session and opens the Library, which is what `entitlements` reports.' }),
   },
   [`${api}/billing/entitlement`]: {
-    get: adv('Billing', 'Get what the signed-in student holds', { response: { type: 'object', properties: { entitlement: ref('StudentEntitlement') } }, description: 'Includes `liveCbtHost`, the gate the frontend reads before offering the host button.' }),
+    get: tagged('Billing', 'Get what the signed-in student holds', { response: { type: 'object', properties: { entitlement: ref('StudentEntitlement') } }, description: 'Includes `liveCbtHost` and `library`, the gates the frontend reads before offering the host button and the reader, and `adFree`, which tells it to hide the ad slots.' }),
   },
   [`${api}/billing/ad-free/checkout`]: {
-    post: adv('Billing', 'Start a pass purchase', { body: ref('PlanCheckoutInput'), response: ref('PurchaseResponse'), created: true, errors: true, notFound: true, rateLimited: true, unavailable: 'PAYMENT_NOT_CONFIGURED: no payment provider is configured', description: 'Server-priced. A repeated `idempotencyKey` returns the original purchase with 200 instead of charging again. Rate limited per account.' }),
+    post: tagged('Billing', 'Start a pass purchase', { body: ref('PlanCheckoutInput'), response: ref('PurchaseResponse'), created: true, errors: true, notFound: true, rateLimited: true, unavailable: 'PAYMENT_NOT_CONFIGURED: no payment provider is configured', description: 'Server-priced. A repeated `idempotencyKey` returns the original purchase with 200 instead of charging again. Rate limited per account.' }),
   },
   [`${api}/billing/ad-free/status`]: {
-    get: adv('Billing', 'Get the entitlement, and optionally re-verify one purchase', { errors: true, notFound: true, parameters: [{ name: 'reference', in: 'query', schema: { type: 'string' } }], response: { type: 'object', properties: { entitlement: ref('StudentEntitlement'), purchase: { ...ref('Purchase'), nullable: true } } }, description: 'With a reference, an unpaid purchase is re-verified with the provider, which is how the client learns the outcome when the webhook is not reachable.' }),
+    get: tagged('Billing', 'Get the entitlement, and optionally re-verify one purchase', { errors: true, notFound: true, parameters: [{ name: 'reference', in: 'query', schema: { type: 'string' } }], response: { type: 'object', properties: { entitlement: ref('StudentEntitlement'), purchase: { ...ref('Purchase'), nullable: true } } }, description: 'With a reference, an unpaid purchase is re-verified with the provider, which is how the client learns the outcome when the webhook is not reachable.' }),
   },
   [`${api}/billing/ad-free/cancel`]: {
-    post: adv('Billing', 'Abandon your own pending purchase', { body: { type: 'object', required: ['reference'], additionalProperties: false, properties: { reference: str({ minLength: 6, maxLength: 120 }) } }, response: ref('PurchaseResponse'), notFound: true, description: 'Only a pending purchase. A paid one is a refund, which is an administrator action.' }),
+    post: tagged('Billing', 'Abandon your own pending purchase', { body: { type: 'object', required: ['reference'], additionalProperties: false, properties: { reference: str({ minLength: 6, maxLength: 120 }) } }, response: ref('PurchaseResponse'), notFound: true, description: 'Only a pending purchase. A paid one is a refund, which is an administrator action.' }),
   },
   [`${api}/billing/ad-free/refund`]: {
-    post: adv('Billing', 'Refund a purchase and revoke what it granted', { admin: true, body: { type: 'object', required: ['reference'], additionalProperties: false, properties: { reference: str({ minLength: 6, maxLength: 120 }), reason: str({ maxLength: 200 }) } }, response: ref('PurchaseResponse'), notFound: true, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Refunds with the provider first, then revokes exactly the entitlement that purchase granted.' }),
+    post: tagged('Billing', 'Refund a purchase and revoke what it granted', { admin: true, body: { type: 'object', required: ['reference'], additionalProperties: false, properties: { reference: str({ minLength: 6, maxLength: 120 }), reason: str({ maxLength: 200 }) } }, response: ref('PurchaseResponse'), notFound: true, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Refunds with the provider first, then revokes exactly the entitlement that purchase granted.' }),
   },
   [`${api}/billing/ad-free/entitlements/{userId}/grant`]: {
-    post: adv('Billing', 'Grant an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), durationDays: int({ minimum: 1, maximum: 3650, description: 'Omitted means the grant does not expire' }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, created: true, notFound: true }),
+    post: tagged('Billing', 'Grant an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), durationDays: int({ minimum: 1, maximum: 3650, description: 'Omitted means the grant does not expire' }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, created: true, notFound: true }),
   },
   [`${api}/billing/ad-free/entitlements/{userId}/revoke`]: {
-    post: adv('Billing', 'Revoke an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), reason: str({ maxLength: 200 }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, notFound: true, description: 'Keeps the row (the history) and clears liveness. Used for refunds, chargebacks and support corrections.' }),
+    post: tagged('Billing', 'Revoke an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), reason: str({ maxLength: 200 }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, notFound: true, description: 'Keeps the row (the history) and clears liveness. Used for refunds, chargebacks and support corrections.' }),
   },
   [`${api}/billing/ad-free/webhook`]: {
-    post: adv('Billing', 'Payment provider webhook (Paystack)', { security: false, response: { type: 'object', properties: { applied: { type: 'boolean' }, duplicate: { type: 'boolean' }, ignored: { type: 'boolean' }, refunded: { type: 'boolean' }, reference: str() } }, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Authenticated by the HMAC over the raw body (`x-paystack-signature`), not by a session. A reference for another dispatcher is acknowledged and ignored. The transaction is re-verified with the provider before anything is granted; a redelivery is a no-op.' }),
+    post: tagged('Billing', 'Payment provider webhook (Paystack)', { security: false, response: { type: 'object', properties: { applied: { type: 'boolean' }, duplicate: { type: 'boolean' }, ignored: { type: 'boolean' }, refunded: { type: 'boolean' }, reference: str() } }, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Authenticated by the HMAC over the raw body (`x-paystack-signature`), not by a session. A reference for another dispatcher is acknowledged and ignored. The transaction is re-verified with the provider before anything is granted; a redelivery is a no-op.' }),
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Library: the shelf, the reader, bookmarks, reading progress and the download.
+//
+// Browsing, bookmarking and progress are free. Reading a page and downloading a file are part of
+// the Student Pass and answer `402 PLAN_REQUIRED` without a live `library` entitlement; an
+// administrator is exempt because they manage the shelf. No response here carries a file URL or a
+// storage key, so a link cannot be harvested from a list response.
+// ---------------------------------------------------------------------------
+const bookIdParam = { name: 'id', in: 'path', required: true, schema: ref('ObjectId'), description: 'The book id.' };
+const bookShelfQuery = [
+  { name: 'q', in: 'query', schema: { type: 'string', maxLength: 120 }, description: 'Case-insensitive match across course code, title, subtitle, author and topics.' },
+  { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 }, description: 'Echoed clamped to 1..pageCount.' },
+  { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 50, default: 12 } },
+  { name: 'filter', in: 'query', schema: { type: 'string', enum: ['all', 'bookmarks'], default: 'all' }, description: 'An unknown value is treated as `all`, never refused.' },
+  { name: 'level', in: 'query', schema: { type: 'integer', enum: [100, 200, 300, 400, 500] } },
+  { name: 'semester', in: 'query', schema: { type: 'string', enum: ['first', 'second'] } },
+];
+const bookPageQuery = { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 }, description: 'Clamped to 1..totalPages rather than refused.' };
+const PASS_REQUIRED = 'PLAN_REQUIRED: reading and downloading Library books needs a live `library` entitlement (a Student Pass).';
+
+Object.assign(window.testflowOpenApi.paths, {
+  [`${api}/library/books`]: {
+    get: tagged('Library', 'Browse the shelf, paged and searchable', { parameters: bookShelfQuery, response: ref('BookListResponse'), description: 'Metadata only. `bookmarked` is per caller and always present, and `pageCount` is at least 1 even when there are no results.' }),
+  },
+  [`${api}/library/reading`]: {
+    get: tagged('Library', 'List every book the caller has opened', { response: ref('ReadingResponse'), description: 'Newest activity first. This is what "Continue reading" reads: every book, each with its own page, so a student resumes them independently. An empty list is a normal answer.' }),
+  },
+  [`${api}/library/books/{id}`]: {
+    get: tagged('Library', 'Get one book', { parameters: [bookIdParam], response: ref('BookResponse'), notFound: true }),
+  },
+  [`${api}/library/books/{id}/pages`]: {
+    get: tagged('Library', 'Read one page', { parameters: [bookIdParam, bookPageQuery], response: ref('BookPagesResponse'), payment: PASS_REQUIRED, notFound: true, description: 'One page at a time, so the client never pulls a whole book. An out-of-range page is clamped, and a page that is not published yet answers with no blocks, which is not the same as a missing book.' }),
+  },
+  [`${api}/library/books/{id}/bookmark`]: {
+    post: tagged('Library', 'Toggle a book bookmark', { parameters: [bookIdParam], response: ref('BookBookmarkResponse'), notFound: true, description: 'A toggle, not a desired state: the answer carries the new state, so the button never has to know whether it was saving or unsaving. Free.' }),
+  },
+  [`${api}/library/books/{id}/progress`]: {
+    put: tagged('Library', 'Save where the caller stopped', { parameters: [bookIdParam], body: ref('BookProgressInput'), response: ref('BookProgressResponse'), errors: true, notFound: true, description: 'Upserts the caller row, clamps the page to the book and computes the percentage from the page count. A client-supplied `percent` is accepted and ignored. Free.' }),
+  },
+  [`${api}/library/books/{id}/download`]: {
+    get: tagged('Library', 'Mint a short-lived download URL', { parameters: [bookIdParam], response: ref('BookDownloadResponse'), payment: PASS_REQUIRED, notFound: true, forbidden: 'DOWNLOAD_NOT_AVAILABLE: the book has no published file yet', rateLimited: true, unavailable: 'STORAGE_NOT_CONFIGURED: file storage is not configured', description: 'Signed and short-lived, so a forwarded link dies with the pass. A repeated request reuses a still-valid URL rather than minting a new signature every tap. The storage key is never returned.' }),
   },
 });
 
@@ -731,9 +779,9 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   AdvertisingConfig: { type: 'object', properties: { version: int(), providers: { type: 'object', properties: { testflow: ref('AdProviderConfig'), google_adsense: ref('AdProviderConfig') } }, placements: { type: 'array', items: ref('Placement') }, issues: { type: 'array', items: { type: 'object', properties: { level: str({ enum: ['warn', 'error'] }), provider: str(), code: str(), message: str() } } } } },
   EligibilityProvider: { type: 'object', properties: { eligible: { type: 'boolean', description: 'Permitted, not guaranteed to fill' }, reason: str({ enum: ['ELIGIBLE', 'PLACEMENT_RESTRICTED', 'PLACEMENT_PROVIDER_UNSUPPORTED', 'AD_FREE_ENTITLEMENT', 'CONSENT_WITHHELD', 'CONSENT_REQUIRED', 'PROVIDER_DISABLED', 'AUTH_REQUIRED'] }) } },
   Eligibility: { type: 'object', properties: { placement: ref('PlacementId'), service: { type: 'array', items: str(), description: 'The contexts this placement is approved for' }, placementKnown: { type: 'boolean' }, placementEnabled: { type: 'boolean' }, authenticated: { type: 'boolean' }, consent: str({ enum: ['granted', 'denied', 'unknown'] }), adFree: { type: 'boolean', description: 'A verified paid entitlement, never a client claim' }, entitlementStatus: str({ enum: ['free', 'active', 'expired'] }), providers: { type: 'object', properties: { testflow: ref('EligibilityProvider'), google_adsense: ref('EligibilityProvider') } }, adsEnabled: { type: 'boolean' }, reason: { nullable: true, type: 'string', description: 'Why nothing may serve, when nothing may serve' }, configVersion: int(), checkedAt: str({ format: 'date-time' }) } },
-  StudentPlan: { type: 'object', properties: { key: str({ enum: ['pass_30d', 'pass_90d'] }), name: str(), description: str(), priceMinor: int({ description: 'Minor units (kobo)' }), currency: str({ example: 'NGN' }), durationDays: int(), removesAds: { type: 'boolean' }, entitlements: { type: 'object', properties: { adFree: { type: 'boolean' }, liveCbtHost: { type: 'boolean' } } } } },
-  EntitlementKey: { type: 'string', enum: ['ad_free', 'live_cbt_host'], description: 'ad_free suppresses both advertising providers. live_cbt_host only unlocks hosting a live CBT session, and suppresses nothing.' },
-  StudentEntitlement: { type: 'object', properties: { userId: ref('ObjectId'), status: str({ enum: ['free', 'active', 'expired'] }), planKey: str({ nullable: true }), entitlements: { type: 'object', properties: { ad_free: { type: 'boolean' }, live_cbt_host: { type: 'boolean' } } }, adFree: { type: 'boolean' }, liveCbtHost: { type: 'boolean' }, activeKeys: { type: 'array', items: ref('EntitlementKey') }, expiresAt: str({ format: 'date-time', nullable: true, description: 'Null means it does not expire' }), lastPaidAt: str({ format: 'date-time', nullable: true }), verifiedAt: str({ format: 'date-time' }) } },
+  StudentPlan: { type: 'object', properties: { key: str({ enum: ['pass_30d', 'pass_90d'] }), name: str(), description: str(), priceMinor: int({ description: 'Minor units (kobo)' }), currency: str({ example: 'NGN' }), durationDays: int(), removesAds: { type: 'boolean' }, entitlements: { type: 'object', properties: { adFree: { type: 'boolean' }, liveCbtHost: { type: 'boolean' }, library: { type: 'boolean', description: 'Reading and downloading Library books' } } } } },
+  EntitlementKey: { type: 'string', enum: ['ad_free', 'live_cbt_host', 'library'], description: 'ad_free suppresses both advertising providers. live_cbt_host only unlocks hosting a live CBT session, and suppresses nothing. library only unlocks reading and downloading Library books. Each is independent of the others.' },
+  StudentEntitlement: { type: 'object', properties: { userId: ref('ObjectId'), status: str({ enum: ['free', 'active', 'expired'] }), planKey: str({ nullable: true }), entitlements: { type: 'object', properties: { ad_free: { type: 'boolean' }, live_cbt_host: { type: 'boolean' }, library: { type: 'boolean' } } }, adFree: { type: 'boolean' }, liveCbtHost: { type: 'boolean' }, library: { type: 'boolean', description: 'The Library gate the frontend reads before offering the reader; admins are exempt' }, activeKeys: { type: 'array', items: ref('EntitlementKey') }, expiresAt: str({ format: 'date-time', nullable: true, description: 'Null means it does not expire' }), lastPaidAt: str({ format: 'date-time', nullable: true }), verifiedAt: str({ format: 'date-time' }) } },
   PlanCheckoutInput: { type: 'object', required: ['planKey'], additionalProperties: false, properties: { planKey: str({ enum: ['pass_30d', 'pass_90d'] }), idempotencyKey: str({ minLength: 8, maxLength: 120 }) } },
   Purchase: { type: 'object', properties: { id: ref('ObjectId'), reference: str(), planKey: str(), planName: str({ nullable: true }), amountKobo: int(), currency: str(), status: str({ enum: ['initialized', 'paid', 'failed', 'abandoned', 'refunded'] }), provider: str({ enum: ['paystack', 'none'] }), authorizationUrl: str({ format: 'uri', nullable: true, description: 'Only while the purchase is initialized' }), paidAt: str({ format: 'date-time', nullable: true }), verifiedAt: str({ format: 'date-time', nullable: true }), refundedAt: str({ format: 'date-time', nullable: true }), createdAt: str({ format: 'date-time' }) } },
   PurchaseResponse: { type: 'object', properties: { purchase: ref('Purchase') } },
@@ -829,4 +877,44 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   LiveDashboard: { allOf: [ref('LiveRoom'), { type: 'object', properties: { totals: { type: 'object', properties: { approved: int(), started: int(), submitted: int(), timedOut: int(), noShow: int() } }, rankings: { type: 'array', items: ref('LiveRankingRow') }, questionStats: { type: 'array', items: ref('LiveQuestionStat') } } }] },
   LiveDashboardResponse: { type: 'object', properties: { dashboard: ref('LiveDashboard') } },
   LiveEvent: { type: 'object', description: 'One room event, over the socket or the SSE stream. Every payload carries the event name and an authoritative serverTime.', properties: { event: str({ enum: ['connected', 'heartbeat', 'pong', 'participant.joined', 'participant.approved', 'participant.rejected', 'participant.submitted', 'room.updated', 'exam.started', 'exam.timed_out', 'exam.ended', 'results.published', 'exam.cancelled'] }), serverTime: str({ format: 'date-time' }), shareCode: str(), status: ref('LiveStatus'), startedAt: str({ format: 'date-time' }), endsAt: str({ format: 'date-time' }), counts: ref('LiveCounts'), userId: ref('ObjectId'), approved: int(), autoSubmitted: int() } },
+});
+
+// ---------------------------------------------------------------------------
+// Library schemas. The book shape is the one every response reuses; `bookmarked` is per caller.
+// ---------------------------------------------------------------------------
+Object.assign(window.testflowOpenApi.components.schemas, {
+  BookColor: { type: 'string', enum: ['red', 'blue', 'ink', 'green', 'amber', 'violet', 'teal'], description: 'Cover colour. A value the client does not know falls back to `ink`.' },
+  Book: {
+    type: 'object',
+    description: 'One shelf entry. Metadata only: never a file URL and never the storage key.',
+    properties: {
+      id: ref('ObjectId'),
+      code: str({ example: 'MTH101', description: 'The course code.' }),
+      title: str(),
+      subtitle: str(),
+      description: str({ description: 'Two or three sentences, shown in the book dialog.' }),
+      color: ref('BookColor'),
+      level: int({ enum: [100, 200, 300, 400, 500] }),
+      semester: str({ enum: ['first', 'second'] }),
+      pages: int(),
+      sizeKb: int({ description: 'Derived from the stored size in bytes.' }),
+      edition: str({ example: '2nd edition' }),
+      author: str(),
+      year: { type: 'integer', nullable: true },
+      topics: { type: 'array', items: str() },
+      bookmarked: { type: 'boolean', description: 'Per caller, and always present.' },
+      updatedAt: str({ format: 'date-time' }),
+    },
+  },
+  BookResponse: { type: 'object', properties: { book: ref('Book') } },
+  BookListResponse: { type: 'object', properties: { books: { type: 'array', items: ref('Book') }, page: int({ description: 'Clamped to 1..pageCount.' }), pageCount: int({ description: 'At least 1, even when the result is empty.' }), total: int() } },
+  BookPageBlock: { type: 'object', properties: { type: str({ enum: ['heading', 'paragraph'], description: 'A discriminated union the reader switches on; an unknown type is ignored, not an error.' }), text: str() } },
+  BookPagesResponse: { type: 'object', description: 'One page of readable content. No answer keys apply here: it is prose, not a question.', properties: { bookId: ref('ObjectId'), page: int({ description: 'Clamped to 1..totalPages.' }), totalPages: int(), blocks: { type: 'array', items: ref('BookPageBlock'), description: 'Empty when the page is not published yet. The reader says so rather than showing a missing-book error.' } } },
+  BookProgressInput: { type: 'object', required: ['page'], additionalProperties: false, properties: { page: int({ minimum: 1 }), percent: int({ description: 'Accepted and deliberately ignored: the server computes it from the book page count, never from the client.' }) } },
+  BookProgress: { type: 'object', properties: { bookId: ref('ObjectId'), page: int(), percent: int({ description: 'round(page / book.pages * 100); 100 when finished.' }), updatedAt: str({ format: 'date-time' }) } },
+  BookProgressResponse: { type: 'object', properties: { progress: ref('BookProgress') } },
+  BookBookmarkResponse: { type: 'object', properties: { id: ref('ObjectId'), bookmarked: { type: 'boolean', description: 'The new state. The button does not need to know whether it was saving or unsaving.' } } },
+  ReadingEntry: { type: 'object', properties: { bookId: ref('ObjectId'), page: int(), percent: int(), updatedAt: str({ format: 'date-time' }), book: ref('Book') } },
+  ReadingResponse: { type: 'object', properties: { reading: { type: 'array', items: ref('ReadingEntry'), description: 'Every book this student has opened, newest activity first. An empty array is a normal answer.' } } },
+  BookDownloadResponse: { type: 'object', properties: { url: str({ format: 'uri', description: 'Short-lived signed URL with Content-Disposition set. The storage key itself is never returned.' }), fileName: str({ example: 'MTH101 - Elementary Mathematics I.pdf' }), sizeBytes: int(), expiresAt: str({ format: 'date-time' }) } },
 });

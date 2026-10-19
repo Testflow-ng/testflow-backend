@@ -58,6 +58,7 @@ export const studentEntitlements = async (userId, { now = new Date() } = {}) => 
     entitlements,
     adFree: entitlements.ad_free === true,
     liveCbtHost: entitlements.live_cbt_host === true,
+    library: entitlements.library === true,
     activeKeys: rows.map((row) => row.key).sort(),
     expiresAt: expiresAt ? expiresAt.toISOString() : null,
     // Last verified payment, so the UI can show "paid on" without a second call.

@@ -245,9 +245,17 @@ export const refundPurchase = async ({ actor, reference, reason = 'refund' }) =>
 /**
  * Revokes exactly the keys this purchase granted, and only while it is the grant holder: a later
  * purchase that stacked on top keeps its entitlement.
+ *
+ * Driven by both the snapshot and the rows themselves. The snapshot alone would miss a key the
+ * purchase granted that was not in the catalogue when it was sold (a pass bought before the
+ * `library` entitlement existed still granted it once the row was backfilled), so any row that
+ * still names this purchase is revoked too.
  */
 export const revokePurchaseEntitlements = async (purchase, reason) => {
-  for (const key of purchase.planSnapshot.entitlementKeys) {
+  const granted = await StudentEntitlement.find({ user: purchase.user, purchase: purchase._id }).select('key').lean();
+  const keys = new Set([...purchase.planSnapshot.entitlementKeys, ...granted.map((row) => row.key)]);
+
+  for (const key of keys) {
     const row = await StudentEntitlement.findOne({ user: purchase.user, key }).lean();
     if (!row) continue;
     if (row.purchase && String(row.purchase) !== String(purchase._id)) continue; // superseded by a newer pass

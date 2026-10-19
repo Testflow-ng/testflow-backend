@@ -2,6 +2,27 @@
 
 The student app is being redesigned (branch `redesign` in the frontend repo). Most screens use endpoints that already exist. This file lists what is **new or changed** so the backend can match. Newest items first.
 
+## 0. Library is part of the Student Pass (backend enforced)
+
+Free students browse the Library shelf; **reading and downloading need the pass**. The frontend shows the
+locked state and the backend now enforces it: a `library` entitlement, `402 PLAN_REQUIRED` on the pages and
+download endpoints only (browsing, bookmarks, progress and "Continue reading" stay free), and an idempotent
+backfill for passes sold before the key existed (`npm run backfill:library`, run once at deploy).
+
+```
+GET    /api/library/books                      free   paged, searchable (q), filter=all|bookmarks, level, semester
+GET    /api/library/books/:id                  free
+GET    /api/library/reading                    free   every book started, newest first
+POST   /api/library/books/:id/bookmark         free   toggle
+PUT    /api/library/books/:id/progress         free   { page }, server computes percent
+GET    /api/library/books/:id/pages?page=      PASS   one page at a time; 402 without the pass
+GET    /api/library/books/:id/download         PASS   short-lived signed URL; 402 without the pass, 403 when no file
+```
+
+Full spec: [LIBRARY_GATE.md](./LIBRARY_GATE.md). Response shapes, paging contract and download rules:
+[backend-library-api.md](../../../frontend/docs/backend-library-api.md). Seed a local shelf with
+`npm run seed:library`.
+
 ## 1. Hall of Fame: overall leaderboard (new endpoint)
 
 The sidebar has a new **Hall of Fame** page. It shows a board per subject and an **Overall** board.

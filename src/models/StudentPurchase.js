@@ -45,7 +45,14 @@ const studentPurchaseSchema = new mongoose.Schema(
 
 studentPurchaseSchema.index({ user: 1, createdAt: -1 });
 studentPurchaseSchema.index({ status: 1, createdAt: -1 });
-studentPurchaseSchema.index({ user: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+// One purchase per (student, idempotency key). Deliberately a PARTIAL index, not `sparse`: a
+// compound sparse index still indexes a document that has only one of the two fields, so two
+// purchases by the same student that carry no key at all would both index as (user, null) and the
+// second would be refused as a duplicate. A buyer is allowed to buy a second pass.
+studentPurchaseSchema.index(
+  { user: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);
 
 studentPurchaseSchema.set('toJSON', {
   virtuals: true,

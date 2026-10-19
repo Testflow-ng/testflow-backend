@@ -194,6 +194,7 @@ describe('Student plans, entitlements and ad-free purchases (integration)', { sk
       assert.equal(product.currency, 'NGN');
       assert.equal(product.removesAds, true);
       assert.equal(product.entitlements.liveCbtHost, true);
+      assert.equal(product.entitlements.library, true, 'every pass also opens the Library');
     }
 
     const sneaky = await account();
@@ -283,6 +284,7 @@ describe('Student plans, entitlements and ad-free purchases (integration)', { sk
     assert.equal(after.status, 'active');
     assert.equal(after.adFree, true);
     assert.equal(after.liveCbtHost, true);
+    assert.equal(after.library, true, 'the library key is granted by the same pass');
     assert.equal(after.planKey, 'pass_30d');
     const days = (new Date(after.expiresAt).getTime() - Date.now()) / 86400000;
     assert.ok(days > 29 && days <= 30, `expected about 30 days, got ${days}`);

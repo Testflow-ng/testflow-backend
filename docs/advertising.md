@@ -43,9 +43,21 @@ src/controllers/advertising.controller.js     src/routes/advertising.routes.js
 src/controllers/billing.controller.js         src/routes/billing.routes.js
 src/validators/advertising.schema.js
 src/middleware/optionalAuth.js                guest-or-student endpoints
+
+src/models/Book.js                            the shelf: metadata, cover colour, the R2 file key
+src/models/BookPage.js                        one page of reader content (blocks of heading/paragraph)
+src/models/BookBookmark.js                    a saved book, unique (student, book)
+src/models/BookReadingProgress.js             where a student stopped, unique (student, book)
+src/services/library.service.js               the shelf, the reader, bookmarks, progress and the gate
+src/controllers/library.controller.js         src/routes/library.routes.js
+src/validators/library.schema.js
+src/scripts/seed-library.js                   seed the 18 books and their sample pages
+src/scripts/backfill-library-entitlement.js   give `library` to passes sold before it existed
+
 tests/advertising.unit.test.js                10 tests, no database
 tests/advertising.integration.test.js         13 tests
 tests/entitlements.integration.test.js        19 tests
+tests/library.integration.test.js             13 tests
 ```
 
 The payment provider is the project's existing one: `src/services/ads/payment` (Paystack adapter,
@@ -162,7 +174,8 @@ endpoint: have the server derive it from the stored consent record instead of fr
 
 ## 6. The ad-free entitlement and the student pass
 
-`StudentEntitlement` holds one row per (student, key), with `key` in `ad_free | live_cbt_host`.
+`StudentEntitlement` holds one row per (student, key), with `key` in
+`ad_free | live_cbt_host | library`.
 Liveness is computed against the clock (`active`, no `revokedAt`, `expiresAt` in the future), so an
 expired pass stops working immediately without a job having to run. `expireLapsedEntitlements()` is
 available for housekeeping and is purely cosmetic.
@@ -172,6 +185,7 @@ Scope, stated explicitly and asserted in tests:
 * `ad_free` suppresses **both** providers (`testflow` and `google_adsense`) across the student
   product.
 * `live_cbt_host` suppresses nothing. It only unlocks hosting a live CBT session.
+* `library` suppresses nothing. It only unlocks reading and downloading Library books.
 
 ### Live CBT: hosting is paid, joining is free
 
@@ -181,6 +195,33 @@ reading results are unchanged and need no plan.
 
 The gate lives in the service, not the router, so every future caller passes through it.
 
+### Library: browsing is free, reading and downloading are paid
+
+`library.service.getBookPages` and `library.service.getBookDownload` require the `library`
+entitlement and otherwise fail with `402 PLAN_REQUIRED`, "Reading and downloading Library books needs
+a Student Pass." Everything else in the Library stays free: the shelf, the details, bookmarking a
+book, reading progress and "Continue reading".
+
+Like the Live CBT gate it sits in the service on the two functions that return content, so it cannot
+be bypassed by reaching the service directly. Administrators and super administrators are exempt,
+because they manage the books.
+
+Two related rules:
+
+* A file URL is only ever produced by the gated download path. No shelf or detail response carries
+  `fileKey` or a URL, so a link cannot be harvested from a list and reused after a pass ends. The URL
+  is signed for one hour, and a repeated request reuses a still-valid one instead of minting a new
+  signature every tap.
+* A purchase sold before `library` existed granted `ad_free` and `live_cbt_host` but no `library`
+  row. `scripts/backfill-library-entitlement.js` creates the missing row (same expiry, plan and
+  purchase reference) for every live `ad_free` row, and is idempotent, so no existing pass holder is
+  locked out. Because the backfilled row carries the purchase reference, a later refund revokes it
+  like any other key.
+
+Seed a shelf with `npm run seed:library` (18 books plus sample pages). Books are seeded rather than
+managed through an API in this slice, and `fileKey` is left null until a real PDF is uploaded, so the
+download endpoint answers `403 DOWNLOAD_NOT_AVAILABLE` rather than minting a link to nothing.
+
 ### Products
 
 The catalogue is `src/config/plans.js` (code, like the Everybody `PLAN_SEED`, so a price change is a
@@ -188,8 +229,8 @@ deployment):
 
 | Key | Price | Duration | Grants |
 |---|---|---|---|
-| `pass_30d` | ₦2,500 | 30 days | `ad_free`, `live_cbt_host` |
-| `pass_90d` | ₦6,000 | 90 days | `ad_free`, `live_cbt_host` |
+| `pass_30d` | ₦2,500 | 30 days | `ad_free`, `live_cbt_host`, `library` |
+| `pass_90d` | ₦6,000 | 90 days | `ad_free`, `live_cbt_host`, `library` |
 
 **Assumption to confirm:** those two price points are placeholders. They are the only numbers in this
 slice that are not derived from the existing codebase.
@@ -231,7 +272,7 @@ for HMAC verification.
 | GET | `/api/advertising/admin/health` | admin | Provider status, placement counts, entitlement counts, issues |
 | GET | `/api/advertising/admin/reporting` | admin | Reporting integration status |
 | GET | `/api/billing/ad-free/products` | public | The plan catalogue |
-| GET | `/api/billing/entitlement` | student | What the caller holds (including `liveCbtHost`) |
+| GET | `/api/billing/entitlement` | student | What the caller holds (including `liveCbtHost`, `library` and `adFree`) |
 | POST | `/api/billing/ad-free/checkout` | student, rate limited | Start a purchase |
 | GET | `/api/billing/ad-free/status` | student | Entitlement, and optionally re-verify one purchase |
 | POST | `/api/billing/ad-free/cancel` | student | Abandon one's own pending purchase |
@@ -239,6 +280,18 @@ for HMAC verification.
 | POST | `/api/billing/ad-free/entitlements/:userId/grant` | admin | Grant by hand (support) |
 | POST | `/api/billing/ad-free/entitlements/:userId/revoke` | admin | Revoke by hand (support) |
 | POST | `/api/billing/ad-free/webhook` | provider | Paystack |
+
+The Library surface, which the `library` entitlement gates:
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/library/books` | student | The shelf: paged, searchable, filterable by bookmarks, free |
+| GET | `/api/library/reading` | student | Every book the caller opened, newest first, free |
+| GET | `/api/library/books/:id` | student | One book, free |
+| POST | `/api/library/books/:id/bookmark` | student | Toggle a bookmark, free |
+| PUT | `/api/library/books/:id/progress` | student | Save where the caller stopped, free |
+| GET | `/api/library/books/:id/pages` | student + pass | One page of content (`402` without the pass) |
+| GET | `/api/library/books/:id/download` | student + pass, rate limited | A signed, short-lived URL (`402` without the pass, `403` when no file is published) |
 
 The task brief suggested a `/api/ads/...` namespace. That prefix belongs to the Testflow Ads
 marketplace, which this slice must not touch, so the new surface is `/api/advertising` and
@@ -251,8 +304,24 @@ administrator action.
 Two new collections, created by Mongoose on startup (`init()`), no destructive migration:
 
 * `studententitlements`: unique `{ user, key }`, plus `{ key, active, expiresAt }`.
-* `studentpurchases`: unique `reference`, unique sparse `{ user, idempotencyKey }`, plus
-  `{ user, createdAt }` and `{ status, createdAt }`.
+* `studentpurchases`: unique `reference`, unique sparse `idempotencyKey`, a **partial** unique
+  `{ user, idempotencyKey }` (only where a key exists), plus `{ user, createdAt }` and
+  `{ status, createdAt }`.
+
+Four collections for the Library, also created on startup:
+
+* `books`: unique `code`, plus `{ published, level, semester }`. `fileKey` is the R2 key and is never
+  serialized into a response.
+* `bookpages`: unique `{ book, page }`.
+* `bookbookmarks`: unique `{ user, book }`, plus `{ user, createdAt }`.
+* `bookreadingprogress`: unique `{ user, book }`, plus `{ user, updatedAt }`.
+
+The `{ user, idempotencyKey }` index is deliberately **partial** and not `sparse`. A compound sparse
+index still indexes a document that has only one of the two fields, so two purchases by the same
+student that carry no key at all would both index as `(user, null)` and the second would be refused
+as a duplicate, which would have made a second pass impossible to buy. A database created before that
+fix holds the old index and should drop it once: `db.studentpurchases.dropIndex('user_1_idempotencyKey_1')`
+(it is rebuilt with the partial filter on the next `init()`).
 
 One additive change to an existing collection: `AuditLog.action` gains
 `AD_FREE_PURCHASE_VERIFIED`, `AD_FREE_REFUND`, `ENTITLEMENT_GRANT`, `ENTITLEMENT_REVOKE`, and
@@ -272,6 +341,8 @@ MONGODB_URI_TEST=mongodb://127.0.0.1:27017/tf_entitlements_test \
   node --test --test-force-exit tests/entitlements.integration.test.js              # 19
 MONGODB_URI_TEST=mongodb://127.0.0.1:27017/tf_live_test \
   node --test --test-force-exit tests/liveCbt.integration.test.js                   # 6, includes the new gate
+MONGODB_URI_TEST=mongodb://127.0.0.1:27017/tf_library_test \
+  node --test --test-force-exit tests/library.integration.test.js                   # 13, includes the library gate
 ```
 
 Covered: free student eligible for both providers; a paid pass suppressing both; a live-CBT-only grant
@@ -281,6 +352,15 @@ available, and the reverse; restricted and sensitive placements never serving; u
 requests; a student unable to modify an entitlement; rate-limited checkout; verified, failed,
 pending, mismatched and duplicate payments; cancelled and refunded purchases; entitlement expiry; and
 the isolation of a Google reporting failure from both eligibility and Testflow Ads.
+
+The Library file covers: the shelf being free and paged, searched and filtered; an empty reading list;
+an unknown filter treated as all; bookmark toggling and the bookmarked filter; per-book progress with
+a server-computed percentage and a clamped page; one page at a time; a page that is not published yet;
+a pass-less student refused with `402` on reading and downloading only; a live pass allowed; an expired
+pass refused with no job having run; a revoked entitlement refused; a refunded purchase refused; a
+stacked pass keeping access when the earlier one is refunded; the backfill creating the missing row
+idempotently; an administrator exempt from the gate; no response carrying a file URL or storage key;
+and every route requiring a session.
 
 Existing Testflow Ads suites were re-run unchanged: `ads.unit` 45/45, `ads.integration` 16/19 (the 3
 failures are the pre-existing ones, identical before and after this work).
@@ -320,6 +400,10 @@ The backend supplies eligibility, configuration and entitlement. The frontend st
   plus the `/billing/complete` return route (or set `AD_FREE_CALLBACK_URL`).
 * Show the "hosting needs a plan" state when `POST /api/live-cbt` answers `402 PLAN_REQUIRED`, using
   `GET /api/billing/entitlement` to decide whether to offer the button at all.
+* Read `library` from `GET /api/billing/entitlement` before opening the reader, and show the locked
+  state when `GET /api/library/books/:id/pages` or `/download` answers `402 PLAN_REQUIRED`. Treat
+  `403 DOWNLOAD_NOT_AVAILABLE` as "no file published yet", which is a different message from a
+  missing book.
 
 ## 14. Known limitations and future enhancements
 
@@ -334,6 +418,16 @@ The backend supplies eligibility, configuration and entitlement. The frontend st
   would be a small extension to `GOOGLE_ADSENSE_AD_UNITS`.
 * **No server-side ad auction** is created, and no unsupported Google ad-serving API is called, by
   design.
+* **Books are seeded, not managed through an API.** `npm run seed:library` writes the 18-book shelf
+  and placeholder page text. There is no admin CRUD for books in this slice, and `fileKey` stays null
+  until a real PDF is uploaded to R2, so the download endpoint answers `403 DOWNLOAD_NOT_AVAILABLE`
+  rather than signing a link to an object that is not there.
+* **The download URL reuse cache is per process.** It is a courtesy (a repeated tap does not mint a
+  new signature), not a shared guarantee: a second instance mints its own URL, which is harmless
+  because the signature is short-lived either way.
+* **Existing pass holders need `npm run backfill:library` once.** New purchases carry `library` in
+  the plan snapshot automatically; passes sold before this slice do not, and the script creates the
+  missing row. Until it runs, those holders see the shelf but not the reader.
 
 ## 15. Readiness stages
 

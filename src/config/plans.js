@@ -20,24 +20,24 @@ export const STUDENT_PLANS = Object.freeze([
   Object.freeze({
     key: 'pass_30d',
     name: 'Student Pass',
-    description: '30 days of hosted live sessions and an ad-free TestFlow.',
+    description: '30 days of hosted live sessions, an ad-free TestFlow and the full Library.',
     priceMinor: 250000, // ₦2,500
     currency: 'NGN',
     durationDays: 30,
     available: true,
     // Keyed by the real entitlement keys so a plan and a grant share one vocabulary.
-    entitlements: Object.freeze({ ad_free: true, live_cbt_host: true }),
+    entitlements: Object.freeze({ ad_free: true, live_cbt_host: true, library: true }),
     sortOrder: 1,
   }),
   Object.freeze({
     key: 'pass_90d',
     name: 'Student Pass (term)',
-    description: '90 days of hosted live sessions and an ad-free TestFlow.',
+    description: '90 days of hosted live sessions, an ad-free TestFlow and the full Library.',
     priceMinor: 600000, // ₦6,000
     currency: 'NGN',
     durationDays: 90,
     available: true,
-    entitlements: Object.freeze({ ad_free: true, live_cbt_host: true }),
+    entitlements: Object.freeze({ ad_free: true, live_cbt_host: true, library: true }),
     sortOrder: 2,
   }),
 ]);
@@ -62,5 +62,6 @@ export const toPlanView = (plan) => ({
   entitlements: {
     adFree: !!plan.entitlements.ad_free,
     liveCbtHost: !!plan.entitlements.live_cbt_host,
+    library: !!plan.entitlements.library,
   },
 });

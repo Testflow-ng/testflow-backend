@@ -4,6 +4,7 @@ import subjectRoutes from './subject.routes.js';
 import questionRoutes from './question.routes.js';
 import questionFlagRoutes from './questionFlag.routes.js';
 import questionBookmarkRoutes from './questionBookmark.routes.js';
+import libraryRoutes from './library.routes.js';
 import examSessionRoutes from './examSession.routes.js';
 import feedbackRoutes from './feedback.routes.js';
 import postUtmeRoutes from './postUtme.routes.js';
@@ -31,6 +32,9 @@ router.use('/subjects', subjectRoutes);
 router.use('/questions', questionFlagRoutes);
 router.use('/questions', questionRoutes);
 router.use('/question-bookmarks', questionBookmarkRoutes);
+// The shelf, the reader and the download. Reading and downloading are part of the Student Pass;
+// browsing, bookmarking and progress are not.
+router.use('/library', libraryRoutes);
 router.use('/exam-sessions', examSessionRoutes);
 router.use('/feedback', feedbackRoutes);
 router.use('/post-utme', postUtmeRoutes);

@@ -94,3 +94,35 @@ export const presignPut = (key, { expiresSec = 300 } = {}) => {
   const qs = Object.keys({ ...query }).sort().map((k) => `${enc(k)}=${enc(query[k])}`).join('&');
   return { uploadUrl: `https://${c.host}${encPath(path)}?${qs}&X-Amz-Signature=${signature}`, publicUrl: publicUrlFor(key), key, expiresInSec: expiresSec };
 };
+
+/**
+ * Short-lived URL a browser can GET a private object from.
+ *
+ * `fileName` and `contentType` travel as signed response overrides, so a download arrives named
+ * and typed without the object being public. Both are part of the signature, which is why the
+ * caller cannot tamper with the filename by editing the URL.
+ */
+export const presignGet = (key, { expiresSec = 3600, fileName = null, contentType = null } = {}) => {
+  const c = creds();
+  const amzDate = stamp();
+  const date = amzDate.slice(0, 8);
+  const scope = `${date}/auto/s3/aws4_request`;
+  const query = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256', 'X-Amz-Credential': `${c.accessKeyId}/${scope}`, 'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(expiresSec), 'X-Amz-SignedHeaders': 'host',
+  };
+  if (fileName) query['response-content-disposition'] = `attachment; filename="${fileName}"`;
+  if (contentType) query['response-content-type'] = contentType;
+  const path = `/${c.bucket}/${key}`;
+  const { signature } = signV4({
+    method: 'GET', path, query, headers: { host: c.host }, payloadHash: 'UNSIGNED-PAYLOAD',
+    accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey, region: 'auto', amzDate,
+  });
+  const qs = Object.keys({ ...query }).sort().map((k) => `${enc(k)}=${enc(query[k])}`).join('&');
+  return {
+    url: `https://${c.host}${encPath(path)}?${qs}&X-Amz-Signature=${signature}`,
+    key,
+    expiresAt: new Date(Date.now() + expiresSec * 1000).toISOString(),
+    expiresInSec: expiresSec,
+  };
+};
