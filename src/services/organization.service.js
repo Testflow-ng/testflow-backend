@@ -8,6 +8,10 @@ import { generateToken, hashToken } from '../utils/tokens.js';
 import { recordAction } from './audit.service.js';
 import { RESERVED_SLUGS } from '../validators/everybody.schema.js';
 
+// Re-exported so the organization controller reaches every subscription-side helper through one
+// namespace (`orgs.subView`, `orgs.entitlementsFor`) instead of reaching into two services.
+export { entitlementsFor } from './entitlements.js';
+
 const INVITE_TTL_MS = 7 * 24 * 3600 * 1000;
 
 const slugify = (name) =>
@@ -43,6 +47,25 @@ export const memberView = (m) => ({
   status: m.status,
   studentRef: m.studentRef ?? null,
   joinedAt: m.joinedAt ?? null,
+});
+
+/**
+ * The subscription shape the console reads. `reference` is the same string `checkout` hands the
+ * provider, so a client can start a payment and then hand the reference straight back to `verify`.
+ */
+export const subView = (sub) => ({
+  id: String(sub._id ?? sub.id),
+  organizationId: String(sub.organization),
+  planKey: sub.planKey,
+  status: sub.status,
+  planSnapshot: sub.planSnapshot ?? null,
+  currentPeriodStart: sub.currentPeriodStart ?? null,
+  currentPeriodEnd: sub.currentPeriodEnd ?? null,
+  cancelAtPeriodEnd: Boolean(sub.cancelAtPeriodEnd),
+  pendingPlanKey: sub.pendingPlanKey ?? null,
+  provider: sub.provider ?? null,
+  reference: sub.providerReference ?? `SUB-${String(sub._id).slice(-6).toUpperCase()}`,
+  createdAt: sub.createdAt ?? null,
 });
 
 export const createOrganization = async (user, { name, slug, contactEmail, timezone }, req) => {

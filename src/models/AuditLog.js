@@ -68,11 +68,12 @@ const auditLogSchema = new mongoose.Schema(
         'DELETE_USER',
         'UPDATE_SETTINGS',
         'VERIFY_POST_UTME',
-        'REVIEW_FEEDBACK'
+        'REVIEW_FEEDBACK',
+        'REVIEW_QUESTION_FLAG'
       ]
     },
     targetId: { type: mongoose.Schema.Types.ObjectId }, // ID of the user/subject/question affected
-    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization', 'Feedback'] },
+    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization', 'Feedback', 'QuestionFlag'] },
     metadata: { type: mongoose.Schema.Types.Mixed }, // Any additional info (e.g. subject code)
     ip: { type: String },
     userAgent: { type: String }

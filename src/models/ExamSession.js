@@ -46,6 +46,9 @@ const examSessionSchema = new mongoose.Schema(
     // Whether this sitting may use the on-screen calculator. Copied from the subject at
     // start so the paper keeps the rule it was launched under.
     allowCalculator: { type: Boolean, default: true },
+    // The token in the public result link. Opaque on purpose: the attempt id is never the thing
+    // in the URL, and clearing this field is what revokes a link. Absent until a student shares.
+    shareToken: { type: String },
   },
   { timestamps: true },
 );
@@ -57,6 +60,8 @@ examSessionSchema.index(
   { unique: true, partialFilterExpression: { status: 'in_progress' } },
 );
 examSessionSchema.index({ student: 1, createdAt: -1 });
+// Looking a shared attempt up by token, and never handing the same token to two attempts.
+examSessionSchema.index({ shareToken: 1 }, { unique: true, sparse: true });
 
 // Defense in depth: even if a raw session is ever serialized, strip the answer key.
 examSessionSchema.set('toJSON', {

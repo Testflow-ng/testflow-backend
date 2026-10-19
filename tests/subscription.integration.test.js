@@ -12,6 +12,9 @@ const skip = URI ? false : 'MONGODB_URI_TEST not set';
 
 process.env.NODE_ENV = 'test';
 process.env.ADS_JOBS_ENABLED = 'false';
+// `checkout` deliberately refuses to mint a payment link without a provider key, so the suite
+// configures a dummy one rather than weakening that guard.
+process.env.PAYSTACK_SECRET_KEY = 'sk_test_dummy';
 
 describe('Everybody phase 2 — subscriptions (integration)', { skip }, () => {
   let m; let server; let base;
@@ -60,6 +63,10 @@ describe('Everybody phase 2 — subscriptions (integration)', { skip }, () => {
     await mongoose.connection.dropDatabase();
     m = { mongoose };
     await Promise.all(Object.values(mongoose.models).map((mod) => mod.init()));
+    // Every subscription endpoint refuses an org whose plan is not defined, so the catalogue has to
+    // exist. Prices and entitlements come from the one module that already owns them.
+    const { seedPlans } = await import('../src/scripts/seed-plans.js');
+    await seedPlans();
     const app = (await import('../src/app.js')).default;
     await new Promise((r) => { server = app.listen(0, r); });
     base = `http://127.0.0.1:${server.address().port}`;

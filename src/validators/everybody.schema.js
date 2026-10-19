@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PLAN_KEYS } from '../models/PlanDefinition.js';
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid id.');
 
@@ -82,4 +83,78 @@ export const updateMemberSchema = z.object({
 
 export const acceptInviteSchema = z.object({
   body: z.object({ token }).strict(),
+});
+
+/* ------------------------------------------------------------------------------------------------
+ * Site builder (/v1/everybody/site) and the super-admin console (/v1/admin/everybody).
+ * These are the request shapes their controllers already read: `req.params.organizationId`, the
+ * draft body, the asset kind, and the plan edit fields.
+ * ---------------------------------------------------------------------------------------------- */
+
+const hexColor = z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, 'Use a hex colour such as #0f172a.');
+
+/** The editable part of a site config, mirroring `SiteConfig.draft`. */
+const siteDraft = z
+  .object({
+    brand: z
+      .object({
+        name: z.string().trim().max(120).optional(),
+        logoAssetId: objectId.optional(),
+        faviconAssetId: objectId.optional(),
+        primaryColor: hexColor.optional(),
+        accentColor: hexColor.optional(),
+      })
+      .strict()
+      .optional(),
+    seo: z
+      .object({ title: z.string().trim().max(70).optional(), description: z.string().trim().max(160).optional() })
+      .strict()
+      .optional(),
+    nav: z
+      .array(z.object({ label: z.string().trim().max(50), href: z.string().trim().max(2048) }).strict())
+      .max(8, 'At most 8 navigation links.')
+      .optional(),
+    sections: z.array(z.record(z.any())).max(12, 'At most 12 sections.').optional(),
+  })
+  .strict();
+
+export const listTemplatesSchema = z.object({});
+
+export const siteGetSchema = orgParamsSchema;
+
+export const sitePatchSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  body: siteDraft,
+});
+
+export const sitePublishSchema = orgParamsSchema;
+
+export const siteAssetsSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  body: z.object({ kind: z.enum(['logo', 'favicon', 'hero', 'image']) }).strict(),
+});
+
+export const getOrgSchema = orgParamsSchema;
+
+const suspendBody = z.object({ reason: z.string().trim().max(500).optional() }).strict();
+
+export const suspendOrgSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  body: suspendBody,
+});
+
+export const reinstateOrgSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  body: suspendBody,
+});
+
+export const planEditSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  body: z
+    .object({
+      key: z.enum(PLAN_KEYS),
+      priceMinor: z.number().int().min(0).optional(),
+      available: z.boolean().optional(),
+    })
+    .strict(),
 });

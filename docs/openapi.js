@@ -49,6 +49,7 @@ window.testflowOpenApi = {
     { name: 'Ads: Student serving', description: 'Ad slot shown to students after a completed CBT session, and engagement events' },
     { name: 'Ads: Administration', description: 'Moderation, pricing/settings, payments, refunds and job logs' },
     { name: 'Feedback', description: 'Product feedback from students, and the admin queue that answers it' },
+    { name: 'Study', description: 'Reporting and saving a question, and the public link for a finished result' },
   ],
   paths: {
     '/health': {
@@ -67,7 +68,10 @@ window.testflowOpenApi = {
       post: operation('Submit a response to a shared question', { security: false, parameters: [id], body: { type: 'object', required: ['selectedOption'], properties: { selectedOption: { type: 'integer', minimum: 0 } } }, example: { selectedOption: 1 }, response: { $ref: '#/components/schemas/PublicResponseResult' }, errors: true }),
     },
     [`${api}/public/questions/{id}/share`]: {
-      get: operation('Get share metadata page for a public question', { security: false, parameters: [id], response: { type: 'string', description: 'HTML social share page' } }),
+      get: operation('Get share metadata page for a public question', { security: false, parameters: [id], description: 'A 404 when the question is not shareable, rather than a redirect: a crawler sent to the marketing site would be advertising a link that does not resolve.', response: { type: 'string', description: 'HTML social share page' } }),
+    },
+    [`${api}/public/questions/{id}/og.png`]: {
+      get: operation('Get the preview image for a shared question', { security: false, parameters: [id], description: 'A 1200x630 PNG of the question and its options, rendered on the server because a crawler runs nothing. It never shows the answer.', response: { type: 'string', format: 'binary' } }),
     },
     [`${api}/auth/register`]: {
       post: operation('Create an account for a product (default: student)', { security: false, body: { $ref: '#/components/schemas/RegisterInput' }, example: { fullName: 'Ada Lovelace', email: 'ada@example.com', password: 'Study2026', confirmPassword: 'Study2026' }, created: true, response: { $ref: '#/components/schemas/AuthResponse' }, errors: true }),
@@ -151,6 +155,49 @@ window.testflowOpenApi = {
     [`${api}/admin/feedback/{id}`]: {
       patch: operation('Move a feedback note along and answer it', { admin: true, parameters: [id], description: 'Both parts are optional. `reply` is student-visible, and an empty string clears it. Resolving records who and when; reopening clears that bookkeeping and keeps the reply.', body: { $ref: '#/components/schemas/FeedbackUpdateInput' }, response: { $ref: '#/components/schemas/FeedbackResponse' }, errors: true }),
     },
+    [`${api}/questions/{id}/flag`]: {
+      post: operation('Report a broken question', { description: 'One report per student per question: reporting again updates the reason and the note rather than adding a row, so the report count is a count of students. A reason of `other` requires a note. The answer is the full report row, carrying the question and its key so an admin can judge the claim without opening the bank.', parameters: [id], body: { $ref: '#/components/schemas/FlagInput' }, example: { reason: 'typo', note: 'Option C reads 1l instead of 11.' }, created: true, response: { $ref: '#/components/schemas/FlagResponse' }, errors: true }),
+    },
+    [`${api}/question-bookmarks`]: {
+      get: operation('List the current user saved questions', { description: 'Newest first. Each row carries the question with its answer and explanation, because a study list without the key is a list of things to re-answer blind. A question that has since been deleted comes back as `question: null` rather than dropping the row.', response: { $ref: '#/components/schemas/BookmarkListResponse' } }),
+      post: operation('Save or unsave a question', { description: 'A toggle. The server is the one place that knows which way it is going, so the button does not have to, and the answer carries the new state.', body: { $ref: '#/components/schemas/BookmarkToggleInput' }, example: { questionId: '65f1c2d3e4b5a6f7a8b9c0d1' }, response: { $ref: '#/components/schemas/BookmarkToggleResponse' }, errors: true }),
+    },
+    [`${api}/question-bookmarks/{id}`]: {
+      delete: operation('Remove a saved question', { description: '`id` is the bookmark row, not the question. A row that is not yours is a 404 rather than a 403, so the refusal does not confirm that it exists.', parameters: [id], response: { $ref: '#/components/schemas/BookmarkToggleResponse' } }),
+    },
+    [`${api}/admin/question-flags`]: {
+      get: operation('List the reported-question queue', { admin: true, description: 'Every report, newest first, plus the counts the filter labels are drawn from. `questionCount` is the number of distinct questions ever reported, which is the number an admin can act on.', response: { $ref: '#/components/schemas/FlagQueueResponse' } }),
+    },
+    [`${api}/admin/question-flags/{id}`]: {
+      patch: operation('Decide a reported question', { admin: true, parameters: [id], description: '`status` is required: the buttons on the queue each set one, and there is no default decision that would not be a guess. Resolving or dismissing records who and when; reopening clears that bookkeeping and keeps the note, because the note is usually why it was reopened.', body: { $ref: '#/components/schemas/FlagUpdateInput' }, response: { $ref: '#/components/schemas/FlagResponse' }, errors: true }),
+    },
+    [`${api}/exam-sessions/{id}/share`]: {
+      post: operation('Mint the public link for a finished attempt', { parameters: [id], description: 'Owner only, and only once the paper is submitted. Asking twice answers with the token that already exists, so a student who shares twice gets one URL. 404 for an attempt that is not yours (a 403 would confirm it exists), 409 while the paper is still running.', response: { $ref: '#/components/schemas/ResultShareResponse' } }),
+    },
+    '/r/{token}': {
+      get: {
+        summary: 'Open a shared result',
+        description: 'The page a person opens and a chat client previews, carrying the Open Graph tags. Public by design: the token is the credential, so there is no session. Served outside `/api` and built per request, because the tag URLs have to be absolute and the host is the one the caller used. Clearing the attempt\'s token makes this a 404 immediately.',
+        security: false,
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'The score card page', content: { 'text/html': { schema: { type: 'string' } } } },
+          404: { description: 'Unknown or revoked token' },
+        },
+      },
+    },
+    '/r/{token}/og.png': {
+      get: {
+        summary: 'Get the Open Graph image for a shared result',
+        description: 'The 1200x630 score card a chat client shows: the mark, the score, the subject and count, the band, and Flo in the mood the score earned. Immutable, because a token always means the same attempt. No cookie is required and nothing behind it is answer data.',
+        security: false,
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'The score card', content: { 'image/png': { schema: { type: 'string', format: 'binary' } } } },
+          404: { description: 'Unknown or revoked token' },
+        },
+      },
+    },
     [`${api}/admin/stats`]: { get: operation('Get admin dashboard statistics', { admin: true, response: { type: 'object' } }) },
     [`${api}/admin/activity`]: { get: operation('Get admin activity feed', { admin: true, response: { type: 'object' } }) },
     [`${api}/admin/settings`]: {
@@ -216,8 +263,8 @@ window.testflowOpenApi = {
       VerificationInput: { type: 'object', required: ['receiptImage', 'receiptHash'], properties: { receiptImage: { type: 'string', format: 'uri' }, receiptHash: { type: 'string', description: 'Client-computed receipt fingerprint' }, transactionRef: { type: 'string' } } },
       PublicStats: { type: 'object', properties: { totalQuestions: { type: 'integer' }, totalStudents: { type: 'integer' }, totalExams: { type: 'integer' }, totalSubjects: { type: 'integer' } } },
       PublicConfig: { type: 'object', properties: { isPostUtmeActive: { type: 'boolean' }, postUtmePrice: { type: 'number' }, paymentInfo: { type: 'object' } } },
-      PublicQuestionResponse: { type: 'object', properties: { question: { type: 'object', description: 'Question content without correct answer or explanation.' } } },
-      PublicResponseResult: { type: 'object', properties: { isCorrect: { type: 'boolean' }, correctIndex: { type: 'integer' }, explanation: { type: 'string' } } },
+      PublicQuestionResponse: { type: 'object', properties: { question: { type: 'object', description: 'The question card without its answer or explanation. The fields are the QuestionCardPublic schema below.' } } },
+      PublicResponseResult: { type: 'object', properties: { isCorrect: { type: 'boolean' }, correctOption: { type: 'integer', description: 'The index of the right answer. Named `correctOption` on every API read path; the bank\'s own field is `correctIndex`.' }, explanation: { type: 'string' } } },
     },
   },
 };
@@ -335,6 +382,8 @@ Object.assign(window.testflowOpenApi.paths, {
     },
   },
   [`${api}/admin/ads/jobs`]: { get: ads(T.admin, 'Recent scheduled-job runs (lifecycle, retention)', { admin: true, response: { type: 'object', properties: { runs: { type: 'array', items: { type: 'object' } } } } }) },
+});
+
 Object.assign(window.testflowOpenApi.paths, {
   // --- everybody ---
   [`${api}/v1/everybody/organizations`]: {
@@ -368,7 +417,6 @@ Object.assign(window.testflowOpenApi.paths, {
   [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}/verify`]: {
     get: { summary: 'Verify subscription payment', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'reference', in: 'query', required: false, schema: { type: 'string' } }], response: { $ref: '#/components/schemas/SubscriptionView' } },
   },
-});
 });
 
 Object.assign(window.testflowOpenApi.components.responses, {
@@ -416,6 +464,21 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   FeedbackResponse: { type: 'object', properties: { feedback: ref('Feedback') } },
   FeedbackListResponse: { type: 'object', properties: { feedback: { type: 'array', items: ref('Feedback') } } },
   FeedbackQueueResponse: { type: 'object', properties: { feedback: { type: 'array', items: ref('Feedback') }, counts: { type: 'object', properties: { open: int(), in_review: int(), resolved: int(), total: int(), averageRating: { type: 'number', nullable: true, description: 'Over rated notes only; null when none are rated' }, ratedCount: int() } }, page: int(), total: int() } },
+  FlagReason: { type: 'string', enum: ['wrong_answer', 'typo', 'out_of_syllabus', 'duplicate', 'other'], description: 'Fixed ids, not free text, because the queue is triaged by reason. `other` is the one open-ended case, which is why it carries the note.' },
+  FlagStatus: { type: 'string', enum: ['open', 'resolved', 'dismissed'], description: 'resolved and dismissed stay distinct: one means the bank was changed, the other means the question was fine' },
+  FlagInput: { type: 'object', required: ['reason'], additionalProperties: false, properties: { reason: ref('FlagReason'), note: str({ maxLength: 500, description: 'Required when the reason is `other`' }) } },
+  FlagUpdateInput: { type: 'object', required: ['status'], additionalProperties: false, properties: { status: ref('FlagStatus'), resolution: str({ maxLength: 500, nullable: true, description: 'What the admin decided and why, kept when a report is reopened' }) } },
+  QuestionCard: { type: 'object', description: 'The one question shape the study screens and the report queue read.', properties: { id: ref('ObjectId'), subjectCode: str({ nullable: true }), stem: str(), options: { type: 'array', items: { type: 'string' } }, correctOption: int({ description: 'Index of the right answer, within the stored option order. Named `correctOption` on every API read path.' }), explanation: str({ nullable: true }), topic: str({ nullable: true }) } },
+  QuestionCardPublic: { type: 'object', description: 'The same card with the answer key and the explanation removed: a question link exists so the recipient tries the question.', properties: { id: ref('ObjectId'), subjectCode: str({ nullable: true }), stem: str(), options: { type: 'array', items: { type: 'string' } }, topic: str({ nullable: true }), shareTitle: str({ nullable: true, description: 'The admin\'s own title for the link, when they wrote one' }) } },
+  Flag: { type: 'object', properties: { id: ref('ObjectId'), questionId: ref('ObjectId'), reason: ref('FlagReason'), note: str(), status: ref('FlagStatus'), createdAt: str({ format: 'date-time' }), resolution: str(), reportCount: int({ description: 'How many students have reported this question' }), student: { type: 'object', description: 'The reporter as they were at report time, so a later profile edit does not rewrite what an admin was shown.', properties: { fullName: str({ nullable: true }), username: str({ nullable: true }), matricNumber: str({ nullable: true }) } }, question: ref('QuestionCard') } },
+  FlagResponse: { type: 'object', properties: { flag: ref('Flag') } },
+  FlagQueueResponse: { type: 'object', properties: { flags: { type: 'array', items: ref('Flag') }, counts: { type: 'object', properties: { open: int(), resolved: int(), dismissed: int(), questionCount: int({ description: 'Distinct questions ever reported' }) } } } },
+  BookmarkToggleInput: { type: 'object', required: ['questionId'], additionalProperties: false, properties: { questionId: ref('ObjectId') } },
+  BookmarkToggleResponse: { type: 'object', properties: { questionId: ref('ObjectId'), bookmarked: { type: 'boolean' } } },
+  Bookmark: { type: 'object', properties: { id: ref('ObjectId'), questionId: ref('ObjectId'), createdAt: str({ format: 'date-time' }), question: ref('QuestionCard') } },
+  BookmarkListResponse: { type: 'object', properties: { bookmarks: { type: 'array', items: ref('Bookmark') } } },
+  ResultShare: { type: 'object', properties: { token: str({ description: 'Opaque and unguessable; clearing it on the attempt kills the link' }), url: str({ description: 'Absolute, on the host the request arrived on' }), imageUrl: str({ description: 'The 1200x630 card, a sibling of `url`' }) } },
+  ResultShareResponse: { type: 'object', properties: { share: ref('ResultShare') } },
 });
 // `role` in the User schema
 const userRole = window.testflowOpenApi.components.schemas.User?.properties?.role;
@@ -426,66 +489,16 @@ Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
   if (/\/auth\/(memberships|switch-product|oauth\/)/.test(path)) { Object.values(methods).forEach((method) => { method.tags = ['Identity']; }); return; }
   if (path.includes('/v1/everybody/organizations') || path.includes('/v1/everybody/invitations') || path.includes('/v1/everybody/subscriptions') || path.includes('/v1/everybody/site')) { Object.values(methods).forEach((method) => { method.tags = ['Everybody']; }); return; }
   const tag = path === '/health' ? 'Health'
-    : path.includes('/public/') ? 'Public'
+    : path.includes('/public/') || path.startsWith('/r/') ? 'Public'
       : path.includes('/auth/') ? 'Authentication'
         : path.includes('/subjects') ? 'Subjects'
-          : path.includes('/questions') ? 'Questions'
+          : path.includes('/question-bookmarks') || path.includes('/question-flags') || /\/questions\/\{id\}\/flag$/.test(path) ? 'Study'
+            : path.includes('/questions') ? 'Questions'
             : path.includes('/exam-sessions') ? 'Exam sessions'
               : path.includes('/post-utme') ? 'Post-UTME'
                 : path.includes('/verifications') ? 'Verifications'
                   : path.includes('/feedback') ? 'Feedback'
                     : 'Administration';
   Object.values(methods).forEach((method) => { method.tags = [tag]; });
-
-  // --- everybody ---
-  ['${api}/v1/everybody/organizations']: {
-    post: { summary: "Create a new organization (owner account)", security: false, body: { $ref: "#/components/schemas/OrgCreateInput" }, response: { $ref: "#/components/schemas/OrgView" }, created: true, errors: true },
-  },
-  ['${api}/v1/everybody/organizations']: {
-    get: { summary: "List organizations the authenticated user owns", security: false, response: { $ref: "#/components/schemas/OrgsList" } },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}']: {
-    get: { summary: "Get one organization", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/OrgView" } },
-    patch: { summary: "Patch organization", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { $ref: "#/components/schemas/OrgUpdateInput" }, response: { $ref: "#/components/schemas/OrgView" }, errors: true },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/members']: {
-    get: { summary: "List organization members", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/MembersList" } },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/invitations']: {
-    post: { summary: "Invite a member to the organization", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { $ref: "#/components/schemas/OrgInviteInput" }, response: { $ref: "#/components/schemas/InviteResponse" }, created: true, errors: true },
-  },
-  ['${api}/v1/everybody/invitations/accept']: {
-    post: { summary: "Accept an organization invitation", security: false, body: { $ref: "#/components/schemas/AcceptInviteInput" }, response: { $ref: "#/components/schemas/MemberView" }, created: true, errors: true },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/subscriptions"]: {
-    post: { summary: "Create a subscription (pro/studio)", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { $ref: "#/components/schemas/SubscriptionCreateInput" }, response: { $ref: "#/components/schemas/SubscriptionView" }, created: true, errors: true },
-    get: { summary: "List subscriptions for the organization", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/SubsList" } },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}']: {
-    get: { summary: "Get one subscription", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }, { name: "subId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/SubscriptionView" } },
-    patch: { summary: "Cancel or upgrade/downgrade subscription", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }, { name: "subId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { $ref: "#/components/schemas/SubscriptionUpdateInput" }, response: { $ref: "#/components/schemas/SubscriptionView" }, errors: true },
-    post: { summary: "Checkout for a subscription", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }, { name: "subId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { type: "object", properties: { "Idempotency-Key": { type: "string", description: "Reuse the same key when retrying" } } }, response: { $ref: "#/components/schemas/CheckoutResponse" }, errors: true },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}/verify']: {
-    get: { summary: "Verify subscription payment", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }, { name: "subId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }, { name: "reference", in: "query", required: false, schema: { type: "string" } }], response: { $ref: "#/components/schemas/SubscriptionView" } },
-  },
-  ['${api}/v1/everybody/site/templates']: {
-    get: { summary: "List website templates", security: false, response: { type: "object", properties: { templates: { type: "array", items: { type: "string" } } } } },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/site']: {
-    get: { summary: "Get organization website config", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/SiteView" } },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/site']: {
-    patch: { summary: "Edit website draft", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { $ref: "#/components/schemas/SiteUpdateInput" }, response: { $ref: "#/components/schemas/SiteView" }, errors: true },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/site/preview']: {
-    post: { summary: "Preview website draft", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/SitePreview" } },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/site/publish"]: {
-    post: { summary: "Publish website draft", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], response: { $ref: "#/components/schemas/SiteView" }, errors: true },
-  },
-  ['${api}/v1/everybody/organizations/{organizationId}/site/assets']: {
-    post: { summary: "Upload website asset", security: false, parameters: [{ name: "organizationId", in: "path", required: true, schema: { $ref: "#/components/schemas/ObjectId" } }], body: { $ref: "#/components/schemas/AssetUploadInput" }, response: { $ref: "#/components/schemas/AssetView" }, errors: true },
-  },
 
 });

@@ -11,7 +11,7 @@ const router = Router();
  *  Auth: owner or admin.
  */
 router.post(
-  '/:organizationId/subscriptions',
+  '/organizations/:organizationId/subscriptions',
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.createSubscription,
@@ -22,7 +22,7 @@ router.post(
  *  Auth: owner or admin.
  */
 router.get(
-  '/:organizationId/subscriptions',
+  '/organizations/:organizationId/subscriptions',
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.listMySubs,
@@ -33,7 +33,7 @@ router.get(
  *  Auth: owner or admin.
  */
 router.get(
-  '/:organizationId/subscriptions/:id',
+  '/organizations/:organizationId/subscriptions/:id',
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.getSub,
@@ -45,7 +45,7 @@ router.get(
  *  Auth: owner or admin.
  */
 router.patch(
-  '/:organizationId/subscriptions/:id',
+  '/organizations/:organizationId/subscriptions/:id',
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.updateSub,
@@ -57,7 +57,7 @@ router.patch(
  *  Auth: owner or admin.
  */
 router.post(
-  '/:organizationId/subscriptions/:id/checkout',
+  '/organizations/:organizationId/subscriptions/:id/checkout',
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.checkout,
@@ -69,7 +69,7 @@ router.post(
  *  Auth: owner or admin.
  */
 router.get(
-  '/:organizationId/subscriptions/:id/verify',
+  '/organizations/:organizationId/subscriptions/:id/verify',
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.verify,
@@ -81,7 +81,7 @@ router.get(
  *  Auth: public (provider sends this).
  */
 router.post(
-  '/webhook',
+  '/subscriptions/webhook',
   orgCtrl.webhook,
 );
 

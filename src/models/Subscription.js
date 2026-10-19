@@ -21,15 +21,19 @@ const subscriptionSchema = new mongoose.Schema(
         }),
         default: {},
       },
-      status: { type: String, enum: SUB_STATUSES, default: 'pending' },
-      currentPeriodStart: { type: Date, default: Date.now },
-      currentPeriodEnd: { type: Date, required: true },
-      cancelAtPeriodEnd: { type: Boolean, default: false },
-      pendingPlanKey: { type: String, enum: ['pro', 'studio'] },
-      graceEndsAt: { type: Date },
-      lastPaymentId: { type: String },
     },
-    idempotencyKey: { type: String, unique: true },
+    // Subscription lifecycle. The controller, the entitlements lookup and
+    // `scripts/subscription-lifecycle.js` all read and write these at the top level; nested under
+    // `planSnapshot` they were unknown paths, so strict mode silently dropped every update and
+    // `status` never left 'pending'.
+    status: { type: String, enum: SUB_STATUSES, default: 'pending' },
+    currentPeriodStart: { type: Date, default: Date.now },
+    currentPeriodEnd: { type: Date, required: true },
+    cancelAtPeriodEnd: { type: Boolean, default: false },
+    pendingPlanKey: { type: String, enum: ['pro', 'studio'] },
+    graceEndsAt: { type: Date },
+    lastPaymentId: { type: String },
+    idempotencyKey: { type: String },
     provider: { type: String, enum: ['paystack', 'none'] },
     providerReference: { type: String },
     createdAt: { type: Date, default: Date.now },
@@ -38,7 +42,9 @@ const subscriptionSchema = new mongoose.Schema(
 );
 
 subscriptionSchema.index({ organization: 1, status: 1 });
-subscriptionSchema.index({ idempotencyKey: 1 }, { unique: true });
+// Sparse, and declared once: a subscription created without a provider idempotency key must not
+// collide with the next keyless one, which a plain unique index would.
+subscriptionSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 
 subscriptionSchema.set('toJSON', {
   virtuals: true,

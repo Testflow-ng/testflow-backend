@@ -22,5 +22,8 @@ router.patch('/:id/answer', validate(answerSchema), session.saveAnswer);
 router.post('/:id/strike', validate(sessionIdSchema), session.recordStrike);
 router.post('/:id/submit', validate(sessionIdSchema), session.submitSession);
 router.get('/:id/result', validate(sessionIdSchema), session.getResult);
+// Minting the link is a POST because it writes the token the first time and is not idempotent in
+// the HTTP sense: the answer is the token, which is stable once it exists.
+router.post('/:id/share', validate(sessionIdSchema), session.shareSession);
 
 export default router;

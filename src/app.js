@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config/env.js';
 import routes from './routes/index.js';
+import shareRoutes from './routes/share.routes.js';
 import { notFound, errorHandler } from './middleware/error.js';
 import { csrfProtect } from './middleware/csrf.js';
 import { isAllowedOrigin } from './utils/origins.js';
@@ -62,6 +63,10 @@ if (!config.isTest) {
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
+
+// Public share links. Deliberately outside `/api`: these are pages a person opens and a chat
+// crawler fetches, not API resources, so they carry no session and no CSRF handshake.
+app.use('/r', shareRoutes);
 
 app.use('/api', csrfProtect, routes);
 

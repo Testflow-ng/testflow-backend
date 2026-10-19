@@ -67,7 +67,7 @@ export const saveAnswer = asyncHandler(async (req, res) => {
 });
 
 export const submitExam = asyncHandler(async (req, res) => {
-  const result = await liveCbt.submitExam(req.user._id, req.params.code);
+  const result = await liveCbt.submitExam(req.user._id, req.params.code, req.body?.answers ?? []);
   res.json({ result });
 });
 

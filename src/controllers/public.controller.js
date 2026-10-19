@@ -8,6 +8,26 @@ import { Settings } from '../models/Settings.js';
 import { PublicResponse } from '../models/PublicResponse.js';
 import { AppError } from '../utils/AppError.js';
 import { config } from '../config/env.js';
+import { requestOrigin } from '../utils/requestOrigin.js';
+import { questionPageHtml } from '../utils/shareHtml.js';
+import { toPublicQuestionCard } from '../services/questionCard.service.js';
+import { questionCardPng } from '../services/ogImage.service.js';
+
+const QUESTION_ID = /^[0-9a-fA-F]{24}$/;
+
+/**
+ * A shareable question by id, or null when there is none.
+ *
+ * The shape check comes first because Mongoose turns a malformed id into a CastError, and a typo
+ * in a link should be a 404 rather than a server fault. `isShareable` and `isActive` are part of
+ * the lookup, not a check after it: a question that has been unpublished is not public.
+ */
+const findShareableQuestion = async (id) =>
+  QUESTION_ID.test(String(id))
+    ? Question.findOne({ _id: id, isShareable: true, isActive: true })
+        .populate('subject', 'code')
+        .lean()
+    : null;
 
 export const getPublicStats = asyncHandler(async (req, res) => {
   const [questions, students, exams, subjects] = await Promise.all([
@@ -39,29 +59,25 @@ export const getConfig = asyncHandler(async (req, res) => {
 });
 
 export const getPublicQuestion = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const question = await Question.findOne({ _id: id, isShareable: true, isActive: true })
-    .populate('subject', 'code title')
-    .lean();
+  const question = await findShareableQuestion(req.params.id);
 
   if (!question) {
     throw new AppError(404, 'NOT_FOUND', 'Question not found or is not publicly available.');
   }
 
-  // Safety: Strip correct answer and explanation for the initial view
-  const { correctIndex, explanation, ...publicData } = question;
-  res.json({ question: publicData });
+  // Safety: the initial view is the card without its answer. The client reveals the key only
+  // after the visitor has committed to one, which is the whole point of a challenge link.
+  res.json({ question: toPublicQuestionCard(question) });
 });
 
 export const submitPublicResponse = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { selectedOption } = req.body;
+  const selectedOption = Number(req.body?.selectedOption);
 
-  if (selectedOption === undefined) {
+  if (!Number.isInteger(selectedOption) || selectedOption < 0) {
     throw new AppError(400, 'INVALID_INPUT', 'selectedOption is required.');
   }
 
-  const question = await Question.findOne({ _id: id, isShareable: true, isActive: true });
+  const question = await findShareableQuestion(req.params.id);
   if (!question) {
     throw new AppError(404, 'NOT_FOUND', 'Question not found.');
   }
@@ -69,7 +85,7 @@ export const submitPublicResponse = asyncHandler(async (req, res) => {
   const isCorrect = question.correctIndex === selectedOption;
 
   await PublicResponse.create({
-    question: id,
+    question: req.params.id,
     selectedOption,
     isCorrect,
     metadata: {
@@ -80,44 +96,63 @@ export const submitPublicResponse = asyncHandler(async (req, res) => {
 
   res.json({
     isCorrect,
-    correctIndex: question.correctIndex,
+    // Named the same as every other read path: the bank calls it `correctIndex`, the API does not.
+    correctOption: question.correctIndex,
     explanation: question.explanation,
   });
 });
 
+/**
+ * The share page for a question.
+ *
+ * A crawler does not run JavaScript, so this page is the preview: the tags have to be in the first
+ * response, which is why nothing here is rendered by the app. A question that is not shareable is
+ * a 404 rather than a redirect, because redirecting a crawler to the marketing site advertises a
+ * link that does not resolve.
+ */
 export const generateSharePage = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const question = await Question.findOne({ _id: id, isShareable: true, isActive: true });
+  const question = await findShareableQuestion(id);
 
   if (!question) {
-    return res.redirect(config.CLIENT_URL);
+    throw new AppError(404, 'NOT_FOUND', 'Question not found or is not publicly available.');
   }
 
-  const title = question.shareTitle || 'TestFlow Question Challenge';
-  // Strip LaTeX for the description to keep it readable in social apps
-  const description = question.stem.replace(/\\\\\(|\\\\\)|\$|\\\\\[|\\\\\]/g, '').slice(0, 150) + '...';
-  const shareUrl = `${config.CLIENT_URL}/question/${id}`;
-  const imageUrl = 'https://ik.imagekit.io/oluwadaredaniel/testflow-share-card.png'; // Fallback to a branded card
+  const origin = requestOrigin(req);
+  res
+    .type('html')
+    .set('Cache-Control', 'no-store')
+    .send(
+      questionPageHtml({
+        question: toPublicQuestionCard(question),
+        url: `${origin}${req.originalUrl}`,
+        imageUrl: `${origin}/api/public/questions/${id}/og.png`,
+        clientUrl: config.CLIENT_URL,
+        appUrl: `${config.CLIENT_URL}/question/${id}`,
+      }),
+    );
+});
 
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>${title}</title>
-      <meta property="og:title" content="${title}">
-      <meta property="og:description" content="${description}">
-      <meta property="og:image" content="${imageUrl}">
-      <meta property="og:url" content="${shareUrl}">
-      <meta property="og:type" content="website">
-      <meta name="twitter:card" content="summary_large_image">
-      <script>window.location.href = "${shareUrl}";</script>
-    </head>
-    <body>
-      Redirecting to question...
-    </body>
-    </html>
-  `);
+/**
+ * The question preview image, rendered rather than static.
+ *
+ * The old card was a generic TestFlow image, which told a reader nothing about the link. This one
+ * carries the stem and the options, and never the answer: the recipient is meant to try it.
+ */
+export const getPublicQuestionCard = asyncHandler(async (req, res) => {
+  const question = await findShareableQuestion(req.params.id);
+
+  if (!question) {
+    throw new AppError(404, 'NOT_FOUND', 'Question not found or is not publicly available.');
+  }
+
+  const png = await questionCardPng(toPublicQuestionCard(question));
+
+  res
+    .type('png')
+    .set('Cache-Control', 'public, max-age=3600')
+    .set('Cross-Origin-Resource-Policy', 'cross-origin')
+    .send(png);
 });
 
 /**

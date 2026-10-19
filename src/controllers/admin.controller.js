@@ -8,6 +8,7 @@ import { AuditLog } from '../models/AuditLog.js';
 import { PublicResponse } from '../models/PublicResponse.js';
 import * as auditService from '../services/audit.service.js';
 import * as feedbackService from '../services/feedback.service.js';
+import * as questionFlagService from '../services/questionFlag.service.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import mongoose from 'mongoose';
@@ -589,4 +590,31 @@ export const updateFeedback = asyncHandler(async (req, res) => {
   });
 
   res.json({ feedback });
+});
+
+/**
+ * The reported-question queue.
+ *
+ * Read and write in one place, the same as feedback: the rows and the counts the filter labels
+ * are drawn from come back together, so the buttons and the list can never disagree about what is
+ * in the queue.
+ */
+export const listQuestionFlags = asyncHandler(async (req, res) => {
+  res.json(await questionFlagService.listForAdmin({ limit: req.query.limit }));
+});
+
+export const updateQuestionFlag = asyncHandler(async (req, res) => {
+  const flag = await questionFlagService.resolveForAdmin(req.params.id, req.body, req.user._id);
+
+  // Changing the bank is a decision someone may have to answer for.
+  await auditService.recordAction({
+    actorId: req.user._id,
+    action: 'REVIEW_QUESTION_FLAG',
+    targetId: flag.questionId,
+    targetType: 'QuestionFlag',
+    metadata: { status: flag.status, resolution: Boolean(flag.resolution) },
+    req,
+  });
+
+  res.json({ flag });
 });

@@ -57,20 +57,22 @@ export const createSubscription = asyncHandler(async (req, res) => {
   if (!planKey || !['pro', 'studio'].includes(planKey)) {
     throw new AppError(422, 'VALIDATION_ERROR', 'planKey must be "pro" or "studio".');
   }
-  // If org already has an active subscription, refuse.
-  const existing = await Subscription.findOne({ organization: org._id, status: 'active' });
-  if (existing) throw new AppError(409, 'SUBSCRIPTION_EXISTS', 'Organization already has an active subscription.');
+  // One live subscription at a time. A pending one is already waiting on the provider, and letting
+  // a second through would stack two checkouts against the same org.
+  const existing = await Subscription.findOne({ organization: org._id, status: { $in: ['pending', 'active'] } });
+  if (existing) throw new AppError(409, 'SUBSCRIPTION_EXISTS', 'Organization already has a subscription in progress.');
   const planDef = await PlanDefinition.findOne({ key: planKey }).lean();
   if (!planDef) throw new AppError(400, 'PLAN_UNAVAILABLE', `Plan "${planKey}" is not defined.`);
   const sub = await Subscription.create({
     organization: org._id,
     planKey,
+    // Pending until the provider confirms. The period it grants is written by `verify`; this value
+    // only satisfies the required field in the meantime.
+    currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     planSnapshot: {
       priceMinor: planDef.priceMinor,
       currency: planDef.currency,
       entitlements: planDef.entitlements,
-      status: 'pending',
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day trial/grace placeholder
     },
   });
   await recordAction({
@@ -137,4 +139,19 @@ export const verify = asyncHandler(async (req, res) => {
   );
   if (!updated) throw new AppError(400, 'SUBSCRIPTION_EXISTS', 'Subscription already processed or not pending.');
   res.json({ subscription: orgs.subView(updated), entitlements: orgs.entitlementsFor(req.org._id) });
+});
+
+/**
+ * POST /api/v1/everybody/subscriptions/webhook
+ *
+ * PLACEHOLDER, and deliberately fail-closed. The subscription payment path is unfinished: there is
+ * no signature verifier, no single-winner claim on the payment, and no re-verification of the
+ * amount against the provider (the Ads path in `services/ads/payment.service.js` is the pattern to
+ * copy). Until that exists this refuses, so a provider retry can never be read as a granted
+ * subscription. Replace it before pointing a live Paystack webhook here (a provider request carries
+ * no cookie, so CSRF already lets it through; add the path to `SKIP_ALL` in `middleware/csrf.js`
+ * only when it must also ignore an Origin).
+ */
+export const webhook = asyncHandler(async () => {
+  throw new AppError(501, 'NOT_IMPLEMENTED', 'Subscription webhook is not implemented yet.');
 });

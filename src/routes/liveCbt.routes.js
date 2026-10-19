@@ -7,6 +7,7 @@ import {
   createLiveExamSchema,
   saveLiveAnswerSchema,
   shareCodeParamSchema,
+  submitLiveExamSchema,
   targetUserSchema,
 } from '../validators/liveCbt.schema.js';
 
@@ -33,7 +34,7 @@ router.post('/:code/cancel', validate(shareCodeParamSchema), live.cancelExam);
 // Exam delivery
 router.get('/:code/questions', validate(shareCodeParamSchema), live.getQuestions);
 router.patch('/:code/answer', validate(saveLiveAnswerSchema), live.saveAnswer);
-router.post('/:code/submit', validate(shareCodeParamSchema), live.submitExam);
+router.post('/:code/submit', validate(submitLiveExamSchema), live.submitExam);
 
 // Results
 router.get('/:code/result', validate(shareCodeParamSchema), live.getMyResult);

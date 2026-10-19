@@ -541,23 +541,75 @@ export const saveAnswer = async (userId, shareCode, { questionIndex, selectedOpt
   return { questionIndex, selectedOption, serverTime: new Date().toISOString() };
 };
 
-export const submitExam = async (userId, shareCode) => {
+/**
+ * Apply an answer set the client kept while it was offline. Index-checked and last-write-wins, so a
+ * retried batch is a no-op and an answer can never land on the wrong question.
+ */
+const applyAnswers = (participant, answers) => {
+  let applied = 0;
+  for (const { questionIndex, selectedOption } of answers) {
+    const question = participant.questions[questionIndex];
+    if (!question) continue;
+    if (selectedOption !== null && selectedOption >= question.options.length) continue;
+    if (question.selectedOption === selectedOption) continue;
+    question.selectedOption = selectedOption;
+    applied += 1;
+  }
+  return applied;
+};
+
+/**
+ * A sitting closes on the clock (`sweepExpired`) or when the host ends the exam, and either can
+ * happen while a participant's connection is down. Answers that reach us inside this window still
+ * count, provided results are not out yet: refusing them is what used to lose a paper to a blip.
+ */
+const LATE_SUBMIT_GRACE_MS = 2 * 60 * 1000;
+
+export const submitExam = async (userId, shareCode, answers = []) => {
   const exam = await loadExamByCode(shareCode);
   await sweepExpired(exam);
   const participant = await LiveParticipant.findOne({ liveExam: exam._id, user: userId });
   if (!participant || participant.status !== 'approved') {
     throw new AppError(403, 'NOT_APPROVED', 'Only approved participants can submit.');
   }
-  // Idempotent submit: retries return the same stored result, never a duplicate.
-  if (participant.attemptStatus === 'submitted' || participant.attemptStatus === 'timed_out') {
-    return participantSummary(participant, exam);
+
+  const wasOpen = participant.attemptStatus === 'in_progress';
+  const endsAtMs = exam.endsAt ? new Date(exam.endsAt).getTime() : null;
+  const withinGrace = endsAtMs !== null && Date.now() <= endsAtMs + LATE_SUBMIT_GRACE_MS;
+  const canStillAccept = wasOpen || (exam.status !== 'results_published' && withinGrace);
+
+  // A retry with nothing to add, or a batch that arrived after the sitting was sealed, returns the
+  // stored outcome untouched: submit stays idempotent and never rewrites a released result.
+  if (!canStillAccept) {
+    return { ...participantSummary(participant, exam), answersAccepted: 0, answersRejected: answers.length > 0 };
   }
-  const now = new Date();
-  const timedOut = exam.endsAt ? now.getTime() >= new Date(exam.endsAt).getTime() : false;
-  finalizeParticipant(participant, exam, timedOut ? exam.endsAt : now, timedOut);
+
+  const answersAccepted = applyAnswers(participant, answers);
+  if (!wasOpen && answersAccepted === 0) {
+    return { ...participantSummary(participant, exam), answersAccepted: 0 };
+  }
+
+  if (wasOpen) {
+    const now = new Date();
+    const timedOut = endsAtMs !== null && now.getTime() >= endsAtMs;
+    finalizeParticipant(participant, exam, timedOut ? exam.endsAt : now, timedOut);
+  } else {
+    // Re-score against the answers that just arrived, keeping the original closure: the attempt
+    // stays timed_out (or submitted) at the moment it actually ended.
+    finalizeParticipant(
+      participant,
+      exam,
+      participant.submittedAt ?? exam.endsAt ?? new Date(),
+      participant.attemptStatus === 'timed_out',
+    );
+  }
   await participant.save();
+
+  // A late batch can move a score after the host ended the exam, so the board is re-ranked.
+  if (exam.status === 'completed') await computeRanks(exam._id);
+
   publish(shareCode, 'participant.submitted', { counts: await roomSnapshot(exam) });
-  return participantSummary(participant, exam);
+  return { ...participantSummary(participant, exam), answersAccepted };
 };
 
 const participantSummary = (participant, exam) => ({

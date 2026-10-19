@@ -42,3 +42,29 @@ export const saveLiveAnswerSchema = z.object({
     })
     .strict(),
 });
+
+/**
+ * The paper is handed out once, at start (`GET /questions`), so a client can keep answering through
+ * a dropped connection. `answers` is that un-synced remainder: whatever the best-effort autosave
+ * never managed to deliver, applied server-side before the attempt is scored. Optional, so a client
+ * that only ever used `PATCH /answer` still submits exactly as before.
+ */
+export const submitLiveExamSchema = z.object({
+  params: z.object({ code: shareCode }),
+  body: z
+    .object({
+      answers: z
+        .array(
+          z
+            .object({
+              questionIndex: z.number().int().min(0).max(199),
+              selectedOption: z.number().int().min(0).max(5).nullable(),
+            })
+            .strict(),
+        )
+        .max(200)
+        .optional(),
+    })
+    .strict()
+    .optional(),
+});

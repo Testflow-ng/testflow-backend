@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
 import { listFeedbackSchema, updateFeedbackSchema } from '../validators/feedback.schema.js';
+import { listQuestionFlagsSchema, updateQuestionFlagSchema } from '../validators/study.schema.js';
 
 const router = Router();
 
@@ -26,6 +27,10 @@ router.get('/export-results', admin.exportResults);
 // Student feedback (the queue behind Settings > Feedback)
 router.get('/feedback', validate(listFeedbackSchema), admin.listFeedback);
 router.patch('/feedback/:id', validate(updateFeedbackSchema), admin.updateFeedback);
+
+// Reported questions (the queue behind /admin/reports)
+router.get('/question-flags', validate(listQuestionFlagsSchema), admin.listQuestionFlags);
+router.patch('/question-flags/:id', validate(updateQuestionFlagSchema), admin.updateQuestionFlag);
 
 // Bulk Questions
 router.post('/questions/bulk-delete', admin.bulkDeleteQuestions);
