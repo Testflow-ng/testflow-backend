@@ -27,7 +27,8 @@ const planDefinitionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-planDefinitionSchema.index({ key: 1 });
+// `key` is already unique on the field above; a second, non-unique `key` index would take the
+// same auto-generated name and make `init()` fail with IndexKeySpecsConflict.
 planDefinitionSchema.set('toJSON', {
   virtuals: true,
   versionKey: false,
