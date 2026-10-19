@@ -13,13 +13,13 @@ import {
 
 const router = Router();
 
-// GET /api/v1/admin/everybody/organizations — list all organizations
+// GET /api/v1/admin/everybody: list all organizations
 router.get('/', authenticate, authorize('super_admin'), validate(listOrgsQuerySchema), admin.list);
 
-// GET /api/v1/admin/everybody/organizations/:organizationId — get one org
+// GET /api/v1/admin/everybody/:organizationId: get one org
 router.get('/:organizationId', authenticate, authorize('super_admin'), validate(getOrgSchema), admin.get);
 
-// PATCH /api/v1/admin/everybody/organizations/:organizationId/suspend — suspend org
+// PATCH /api/v1/admin/everybody/:organizationId/suspend: suspend org
 router.patch(
   '/:organizationId/suspend',
   authenticate,
@@ -28,7 +28,7 @@ router.patch(
   admin.suspend,
 );
 
-// PATCH /api/v1/admin/everybody/organizations/:organizationId/reinstate — reinstate org
+// PATCH /api/v1/admin/everybody/:organizationId/reinstate: reinstate org
 router.patch(
   '/:organizationId/reinstate',
   authenticate,
@@ -37,7 +37,7 @@ router.patch(
   admin.reinstate,
 );
 
-// PATCH /api/v1/admin/everybody/organizations/:organizationId/plan — edit plan
+// PATCH /api/v1/admin/everybody/:organizationId/plan: edit plan
 router.patch(
   '/:organizationId/plan',
   authenticate,

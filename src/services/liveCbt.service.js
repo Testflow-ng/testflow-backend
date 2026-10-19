@@ -9,6 +9,7 @@ import { computeScore, rankParticipants } from '../utils/liveRank.js';
 import { shuffle } from '../utils/shuffle.js';
 import { config } from '../config/env.js';
 import { publish } from './liveEvents.js';
+import { hasEntitlement } from './studentPlan.service.js';
 
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 const SHARE_CODE = /^[A-Za-z2-9]{6,16}$/;
@@ -60,7 +61,17 @@ const roomSnapshot = async (exam) => {
 
 // --- Creation ---
 
+/**
+ * Hosting is the paid side of Live CBT; joining is free for any signed-in student.
+ * The gate is the `live_cbt_host` entitlement, which a student pass buys or an administrator
+ * grants. It is deliberately checked here rather than in the router so every caller, including
+ * future internal ones, goes through it.
+ */
 export const createExam = async (hostId, input) => {
+  if (!(await hasEntitlement(hostId, 'live_cbt_host'))) {
+    throw new AppError(402, 'PLAN_REQUIRED', 'Hosting a live session needs an active plan.');
+  }
+
   let subject = null;
   if (input.subject) {
     const filter = OBJECT_ID.test(input.subject)

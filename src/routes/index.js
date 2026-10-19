@@ -17,6 +17,8 @@ import everybodyRoutes from './everybody.routes.js';
 import everybodySubscriptionRoutes from './everybody.subscription.routes.js';
 import siteRoutes from './site.routes.js';
 import adminOrgRoutes from './adminOrg.routes.js';
+import advertisingRoutes from './advertising.routes.js';
+import billingRoutes from './billing.routes.js';
 
 const router = Router();
 
@@ -35,6 +37,10 @@ router.use('/post-utme', postUtmeRoutes);
 router.use('/live-cbt', liveCbtRoutes);
 router.use('/verifications', verificationRoutes);
 router.use('/ads', adsRoutes);
+// Provider-aware advertising (Google AdSense) and the student pass that removes ads. Both are
+// separate from `/ads`, which is the Testflow Ads marketplace.
+router.use('/advertising', advertisingRoutes);
+router.use('/billing', billingRoutes);
 router.use('/admin/ads', adminAdsRoutes); // before '/admin' so it is matched first
 router.use('/admin', adminRoutes);
 router.use('/v1/everybody', everybodyRoutes);

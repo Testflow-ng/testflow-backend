@@ -50,6 +50,10 @@ window.testflowOpenApi = {
     { name: 'Ads: Administration', description: 'Moderation, pricing/settings, payments, refunds and job logs' },
     { name: 'Feedback', description: 'Product feedback from students, and the admin queue that answers it' },
     { name: 'Study', description: 'Reporting and saving a question, and the public link for a finished result' },
+    { name: 'Advertising', description: 'Provider-aware advertising: which provider may run on which placement, for whom. Separate from the Testflow Ads marketplace.' },
+    { name: 'Billing', description: 'The student pass that removes advertising and unlocks hosting a live CBT session' },
+    { name: 'Everybody', description: 'Organization accounts (the Everybody product): the organization, its members, invitations, org subscriptions and the hosted site builder' },
+    { name: 'Live CBT', description: 'Host-run live sittings joined by share link: the waiting room, approvals, question delivery, submission and results. Hosting needs the `live_cbt_host` entitlement; joining is free. The socket at `WS /ws/live-cbt/{shareCode}` pushes the same events as the SSE stream.' },
   ],
   paths: {
     '/health': {
@@ -384,38 +388,186 @@ Object.assign(window.testflowOpenApi.paths, {
   [`${api}/admin/ads/jobs`]: { get: ads(T.admin, 'Recent scheduled-job runs (lifecycle, retention)', { admin: true, response: { type: 'object', properties: { runs: { type: 'array', items: { type: 'object' } } } } }) },
 });
 
+// Everybody: organizations, members, invitations, subscriptions, the site builder and the
+// super-admin console. Every one of these needs a session, so none of them is `security: false`.
+const orgId = { name: 'organizationId', in: 'path', required: true, schema: ref('ObjectId') };
+const memberId = { name: 'memberId', in: 'path', required: true, schema: ref('ObjectId') };
+
 Object.assign(window.testflowOpenApi.paths, {
-  // --- everybody ---
+  // --- everybody: the organization ---
   [`${api}/v1/everybody/organizations`]: {
-    post: { summary: 'Create a new organization (owner account)', security: false, body: { $ref: '#/components/schemas/OrgCreateInput' }, response: { $ref: '#/components/schemas/OrgView' }, created: true, errors: true },
-  },
-  [`${api}/v1/everybody/organizations`]: {
-    get: { summary: 'List organizations the authenticated user owns', security: false, response: { $ref: '#/components/schemas/OrgsList' } },
+    post: operation('Create an organization', { body: ref('OrgCreateInput'), response: ref('OrgView'), created: true, errors: true, description: 'The caller becomes the owner. `slug` is the subdomain; reserved words (www, api, admin, ads, everybody, ...) are refused.' }),
+    get: operation('List the organizations the caller belongs to', { parameters: [page, limit], response: ref('OrgsList') }),
   },
   [`${api}/v1/everybody/organizations/{organizationId}`]: {
-    get: { summary: 'Get one organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/OrgView' } },
-    patch: { summary: 'Patch organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/OrgUpdateInput' }, response: { $ref: '#/components/schemas/OrgView' }, errors: true },
+    get: operation('Get one organization', { parameters: [orgId], response: ref('OrgView'), description: 'Any member may read it; `myRole` is the caller\'s role in this organization.' }),
+    patch: operation('Rename or re-contact an organization', { parameters: [orgId], body: ref('OrgUpdateInput'), response: ref('OrgView'), errors: true, description: 'Owner or admin. The slug is immutable. A closed organization returns `403 ORG_CLOSED`.' }),
   },
+  // --- everybody: members ---
   [`${api}/v1/everybody/organizations/{organizationId}/members`]: {
-    get: { summary: 'List organization members', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/MembersList' } },
+    get: operation('List organization members', { parameters: [orgId, page, limit, { name: 'role', in: 'query', schema: { type: 'string', enum: ['owner', 'admin', 'examiner', 'student'] } }], response: ref('MembersList') }),
   },
+  [`${api}/v1/everybody/organizations/{organizationId}/members/{memberId}`]: {
+    patch: operation('Change a member role or status', { parameters: [orgId, memberId], body: ref('MemberUpdateInput'), response: ref('MemberView'), errors: true, description: 'Owner or admin. Send at least one of `role` and `status`.' }),
+    delete: operation('Remove a member', { parameters: [orgId, memberId], response: ref('MemberView'), description: 'Marks the membership `removed`; it does not delete the user account.' }),
+  },
+  // --- everybody: invitations ---
   [`${api}/v1/everybody/organizations/{organizationId}/invitations`]: {
-    post: { summary: 'Invite a member to the organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/OrgInviteInput' }, response: { $ref: '#/components/schemas/InviteResponse' }, created: true, errors: true },
+    post: operation('Invite someone to the organization', { parameters: [orgId], body: ref('OrgInviteInput'), response: ref('InviteResponse'), created: true, errors: true, description: 'Owner or admin. The raw `token` is normally emailed; it is returned here once so a dev client can finish the flow.' }),
   },
   [`${api}/v1/everybody/invitations/accept`]: {
-    post: { summary: 'Accept an organization invitation', security: false, body: { $ref: '#/components/schemas/AcceptInviteInput' }, response: { $ref: '#/components/schemas/MemberView' }, created: true, errors: true },
+    post: operation('Accept an organization invitation', { body: ref('AcceptInviteInput'), response: ref('AcceptInviteResponse'), created: true, errors: true }),
   },
+  // --- everybody: subscriptions (org plans: pro, studio) ---
   [`${api}/v1/everybody/organizations/{organizationId}/subscriptions`]: {
-    post: { summary: 'Create a subscription (pro/studio)', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/SubscriptionCreateInput' }, response: { $ref: '#/components/schemas/SubscriptionView' }, created: true, errors: true },
-    get: { summary: 'List subscriptions for the organization', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/SubsList' } },
+    post: operation('Start a subscription', { parameters: [orgId], body: ref('SubscriptionCreateInput'), response: ref('SubscriptionResponse'), created: true, errors: true, description: 'Owner or admin. One live subscription per organization; a second returns `409 SUBSCRIPTION_EXISTS`. The subscription stays `pending` until checkout is verified.' }),
+    get: operation('List the organization subscriptions', { parameters: [orgId], response: ref('SubsList'), description: 'Newest first, each with the caller\'s `myRole`.' }),
   },
-  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}`]: {
-    get: { summary: 'Get one subscription', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], response: { $ref: '#/components/schemas/SubscriptionView' } },
-    patch: { summary: 'Cancel or upgrade/downgrade subscription', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { $ref: '#/components/schemas/SubscriptionUpdateInput' }, response: { $ref: '#/components/schemas/SubscriptionView' }, errors: true },
-    post: { summary: 'Checkout for a subscription', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }], body: { type: 'object', properties: { 'Idempotency-Key': { type: 'string', description: 'Reuse the same key when retrying' } } }, response: { $ref: '#/components/schemas/CheckoutResponse' }, errors: true },
+  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{id}`]: {
+    get: operation('Get one subscription', { parameters: [orgId, id], response: ref('SubscriptionResponse') }),
+    patch: operation('Cancel or change plan', { parameters: [orgId, id], body: ref('SubscriptionUpdateInput'), response: ref('SubscriptionResponse'), errors: true, description: '`{ cancelAtPeriodEnd: true }` cancels at period end; `{ planKey }` moves the subscription back to `pending` for the new plan.' }),
   },
-  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{subId}/verify`]: {
-    get: { summary: 'Verify subscription payment', security: false, parameters: [{ name: 'organizationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'subId', in: 'path', required: true, schema: { $ref: '#/components/schemas/ObjectId' } }, { name: 'reference', in: 'query', required: false, schema: { type: 'string' } }], response: { $ref: '#/components/schemas/SubscriptionView' } },
+  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{id}/checkout`]: {
+    post: operation('Checkout a subscription', { parameters: [orgId, id, { name: 'Idempotency-Key', in: 'header', required: false, schema: { type: 'string' }, description: 'Reuse the same key when retrying so the provider is charged once.' }], response: ref('CheckoutResponse'), errors: true, description: 'Returns the provider authorization URL. Verify it afterwards with the same `reference`.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/subscriptions/{id}/verify`]: {
+    get: operation('Verify a subscription payment', { parameters: [orgId, id, { name: 'reference', in: 'query', required: false, schema: { type: 'string' } }], response: ref('SubscriptionVerification'), description: 'Re-checks the payment with the provider and, when successful, activates the subscription.' }),
+  },
+  [`${api}/v1/everybody/subscriptions/webhook`]: {
+    post: {
+      summary: 'Provider payment webhook (not implemented yet)',
+      description: 'Called by the payment provider, never by a client. The route exists but always answers `501 NOT_IMPLEMENTED`: no org subscription is activated by a webhook today, so activation runs through `/v1/everybody/organizations/{organizationId}/subscriptions/{id}/verify` after the provider redirect.',
+      security: false,
+      responses: {
+        '501': { description: 'NOT_IMPLEMENTED', content: { 'application/json': { schema: ref('Error') } } },
+      },
+    },
+  },
+});
+
+// --- everybody: the site builder (mounted under /v1/everybody/site) and the super-admin console ---
+Object.assign(window.testflowOpenApi.paths, {
+  [`${api}/v1/everybody/site/templates`]: {
+    get: operation('List the site templates', { response: ref('SiteTemplateList') }),
+  },
+  [`${api}/v1/everybody/site/{organizationId}/site`]: {
+    get: operation('Get a site config', { parameters: [orgId], response: ref('SiteResponse'), description: 'Returns the draft and the published config. Owner or admin.' }),
+    patch: operation('Edit the site draft', { parameters: [orgId], body: ref('SiteDraftInput'), response: ref('SiteResponse'), errors: true, description: 'Owner or admin. Bumps the draft version; `publish` is what makes it public.' }),
+  },
+  [`${api}/v1/everybody/site/{organizationId}/site/preview`]: {
+    post: operation('Preview the draft', { parameters: [orgId], response: ref('SitePreviewResponse'), description: 'Returns the draft and its version. The preview link lives for 300 seconds.' }),
+  },
+  [`${api}/v1/everybody/site/{organizationId}/site/publish`]: {
+    post: operation('Publish the draft', { parameters: [orgId], response: ref('SiteResponse'), errors: true, description: 'Copies the draft over the published config. An empty draft returns `400 VALIDATION_ERROR`.' }),
+  },
+  [`${api}/v1/everybody/site/{organizationId}/site/assets`]: {
+    post: operation('Register a site asset', { parameters: [orgId], body: ref('SiteAssetInput'), response: ref('SiteAssetResponse'), created: true, errors: true, description: 'v1 stores the asset row and returns a placeholder URL; the sharp/R2 upload pipeline lands later.' }),
+  },
+  // Super admin only. These lean on the `Administration` tag via the classifier below.
+  [`${api}/v1/admin/everybody`]: {
+    get: operation('List every organization', { admin: true, parameters: [page, limit], response: ref('AdminOrgList'), description: 'Super admin only. Newest first, across every organization.' }),
+  },
+  [`${api}/v1/admin/everybody/{organizationId}`]: {
+    get: operation('Get one organization', { admin: true, parameters: [orgId], response: ref('AdminOrgResponse'), description: 'Super admin only.' }),
+  },
+  [`${api}/v1/admin/everybody/{organizationId}/suspend`]: {
+    patch: operation('Suspend an organization', { admin: true, parameters: [orgId], body: ref('OrgReasonInput'), response: ref('AdminOrgResponse'), errors: true, description: 'Super admin only. Sets the status to `suspended` and writes the reason to the audit log.' }),
+  },
+  [`${api}/v1/admin/everybody/{organizationId}/reinstate`]: {
+    patch: operation('Reinstate an organization', { admin: true, parameters: [orgId], body: ref('OrgReasonInput'), response: ref('AdminOrgResponse'), errors: true, description: 'Super admin only. Sets the status back to `active` and records the reason.' }),
+  },
+  [`${api}/v1/admin/everybody/{organizationId}/plan`]: {
+    patch: operation('Queue a plan price or availability edit', { admin: true, parameters: [orgId], body: ref('OrgPlanInput'), response: ref('AdminOrgPlanResponse'), errors: true, description: 'Super admin only. The edit waits on the organization as `planEditPending`; it does not change the plan definition immediately.' }),
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Live CBT: a host-run sitting people join by link. Hosting is the paid side
+// (`402 PLAN_REQUIRED` without the `live_cbt_host` entitlement); joining is
+// free. Answers travel over HTTP; the stream is push-only.
+// ---------------------------------------------------------------------------
+const liveCode = { name: 'code', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z2-9]{6,16}$' }, description: 'The room share code.' };
+
+Object.assign(window.testflowOpenApi.paths, {
+  [`${api}/live-cbt`]: {
+    post: operation('Create a live examination', { body: ref('LiveCreateInput'), response: ref('LiveRoomCreateResponse'), created: true, errors: true, description: 'Host only, and a verified account. Without the `live_cbt_host` entitlement this is `402 PLAN_REQUIRED`, "Hosting a live session needs an active plan." The room opens in the waiting state.' }),
+  },
+  [`${api}/live-cbt/{code}`]: {
+    get: operation('Read the room and the caller membership', { parameters: [liveCode], response: ref('LiveMembershipResponse'), description: 'Any signed-in account may read a room it knows the code of; `membership` is null until the caller joins.' }),
+  },
+  [`${api}/live-cbt/{code}/host`]: {
+    get: operation('Read the room as the host', { parameters: [liveCode], response: ref('LiveHostRoomResponse'), description: 'Host only. Every participant carries email, status, sequence number, score and rank.' }),
+  },
+  [`${api}/live-cbt/{code}/join`]: {
+    post: operation('Ask to join the room', { parameters: [liveCode], response: ref('LiveJoinResponse'), description: 'Free for any signed-in student. The first request creates a `pending` participant (`201`); asking again returns the stored status (`200`). 409 codes: `EXAM_CLOSED`, `EXAM_STARTED`, `HOST_CANNOT_JOIN`, `EXAM_FULL`; a rejected request is `403 JOIN_REJECTED`.' }),
+  },
+  [`${api}/live-cbt/{code}/approve`]: {
+    post: operation('Approve one participant', { parameters: [liveCode], body: ref('LiveTargetInput'), response: ref('LiveApprovalResponse'), errors: true, description: 'Host only, before the exam starts (`409 EXAM_LOCKED`). Allocates the deterministic `sequenceNumber` tie-breaker.' }),
+  },
+  [`${api}/live-cbt/{code}/reject`]: {
+    post: operation('Reject one participant', { parameters: [liveCode], body: ref('LiveTargetInput'), response: ref('LiveApprovalResponse'), errors: true, description: 'Host only, before the exam starts.' }),
+  },
+  [`${api}/live-cbt/{code}/approve-all`]: {
+    post: operation('Approve every waiting participant', { parameters: [liveCode], response: ref('LiveApproveAllResponse'), description: 'Host only, before the exam starts. Stops early once `maxParticipants` is reached.' }),
+  },
+  [`${api}/live-cbt/{code}/start`]: {
+    post: operation('Start the examination', { parameters: [liveCode], response: ref('LiveExamResponse'), description: 'Host only. Samples and freezes a paper per approved participant and sets `startedAt` and `endsAt`. Idempotent while running. 409 codes: `EXAM_CLOSED`, `NO_APPROVED_PARTICIPANTS`, `NOT_ENOUGH_QUESTIONS`.' }),
+  },
+  [`${api}/live-cbt/{code}/end`]: {
+    post: operation('End the examination', { parameters: [liveCode], response: ref('LiveExamResponse'), description: 'Host only. Seals the sitting, auto-submits anything still open, and ranks the board.' }),
+  },
+  [`${api}/live-cbt/{code}/publish`]: {
+    post: operation('Publish the results', { parameters: [liveCode], response: ref('LiveExamResponse'), description: 'Host only, after `end`. Makes each participant score and rank visible to them.' }),
+  },
+  [`${api}/live-cbt/{code}/cancel`]: {
+    post: operation('Cancel the examination', { parameters: [liveCode], response: ref('LiveExamResponse'), description: 'Host only. The room stops accepting participants and never runs.' }),
+  },
+  [`${api}/live-cbt/{code}/questions`]: {
+    get: operation('Get the participant paper', { parameters: [liveCode], response: ref('LivePaperResponse'), description: 'Approved participants only, while the exam runs. Handed out once, with the caller selections, so a client can keep answering through a dropped connection. Never includes answer keys.' }),
+  },
+  [`${api}/live-cbt/{code}/answer`]: {
+    patch: operation('Save one answer', { parameters: [liveCode], body: ref('LiveAnswerInput'), response: ref('LiveAnswerResponse'), errors: true, description: 'Approved participants only. One atomic per-question write, so concurrent autosaves never clobber each other. `selectedOption: null` clears the answer.' }),
+  },
+  [`${api}/live-cbt/{code}/submit`]: {
+    post: operation('Submit the attempt', { parameters: [liveCode], body: ref('LiveSubmitInput'), response: ref('LiveSubmissionResponse'), errors: true, description: 'Approved participants only, and idempotent: a retry returns the stored outcome untouched. `answers` is the un-synced remainder of an offline paper; answers that arrive within two minutes of `endsAt` still count unless results are already out.' }),
+  },
+  [`${api}/live-cbt/{code}/result`]: {
+    get: operation('Get my result', { parameters: [liveCode], response: ref('LiveResultResponse'), description: 'Participants only, after `publish`. `corrections` carries each question, the caller selection, the correct option and the explanation, or is null when the host set `allowReview: false`.' }),
+  },
+  [`${api}/live-cbt/{code}/dashboard`]: {
+    get: operation('Read the host dashboard', { parameters: [liveCode], response: ref('LiveDashboardResponse'), description: 'Host only. Totals, the ranked board, and per-question correct rates keyed by bank question id.' }),
+  },
+  // CSV and SSE are not JSON, so these two are written out rather than built by `operation`.
+  [`${api}/live-cbt/{code}/export.csv`]: {
+    get: {
+      summary: 'Download the result sheet as CSV',
+      description: 'Host only, sent as a download. Columns: rank, displayName, email, score, correctCount, accuracy, timeTakenSeconds, attemptStatus.',
+      security: auth,
+      parameters: [liveCode],
+      responses: {
+        '200': { description: 'The CSV body.', content: { 'text/csv': { schema: { type: 'string' } } } },
+        '401': { $ref: '#/components/responses/Unauthenticated' },
+        '403': { $ref: '#/components/responses/Forbidden' },
+        '404': { $ref: '#/components/responses/NotFound' },
+      },
+    },
+  },
+  [`${api}/live-cbt/{code}/stream`]: {
+    get: {
+      summary: 'Follow the room as server-sent events',
+      description: 'The host or a member of the room; anyone else gets `403 NOT_A_PARTICIPANT`. Opens with `connected`, then fans out the same events as the socket, with `heartbeat` every 25 seconds. Mutations still travel over REST. The primary transport is the socket at `WS /ws/live-cbt/{shareCode}?token=<access token>`, which also answers `{ "type": "ping" }`.',
+      security: auth,
+      parameters: [liveCode],
+      responses: {
+        '200': { description: 'A server-sent event stream.', content: { 'text/event-stream': { schema: ref('LiveEvent') } } },
+        '401': { $ref: '#/components/responses/Unauthenticated' },
+        '404': { $ref: '#/components/responses/NotFound' },
+      },
+    },
+  },
+  // Public: a shared link resolves without a session, so joining is one tap away.
+  [`${api}/public/live-cbt/{code}`]: {
+    get: operation('Read the public room landing', { security: false, parameters: [liveCode], response: ref('LiveLandingResponse'), description: 'No session needed, so a shared link always resolves: title, description, host name and live counts. Never question content, answer keys, emails or internal ids. Joining still needs an account.' }),
   },
 });
 
@@ -488,6 +640,7 @@ Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
   if (Object.values(methods)[0]?.tags) return; // explicitly tagged (ads endpoints)
   if (/\/auth\/(memberships|switch-product|oauth\/)/.test(path)) { Object.values(methods).forEach((method) => { method.tags = ['Identity']; }); return; }
   if (path.includes('/v1/everybody/organizations') || path.includes('/v1/everybody/invitations') || path.includes('/v1/everybody/subscriptions') || path.includes('/v1/everybody/site')) { Object.values(methods).forEach((method) => { method.tags = ['Everybody']; }); return; }
+  if (path.includes('/live-cbt')) { Object.values(methods).forEach((method) => { method.tags = ['Live CBT']; }); return; }
   const tag = path === '/health' ? 'Health'
     : path.includes('/public/') || path.startsWith('/r/') ? 'Public'
       : path.includes('/auth/') ? 'Authentication'
@@ -501,4 +654,179 @@ Object.entries(window.testflowOpenApi.paths).forEach(([path, methods]) => {
                     : 'Administration';
   Object.values(methods).forEach((method) => { method.tags = [tag]; });
 
+});
+
+// ---------------------------------------------------------------------------
+// Provider-aware advertising (Google AdSense) and the student pass
+//
+// Deliberately not under `/api/ads`: that prefix is the Testflow Ads marketplace, which this
+// surface does not touch. `eligible` means a provider is permitted, never that Google has an ad.
+// ---------------------------------------------------------------------------
+const adv = (tag, summary, options = {}) => {
+  const op = operation(summary, options);
+  op.tags = [tag];
+  if (options.errors) op.responses['422'] = { $ref: '#/components/responses/ValidationError' };
+  if (options.notFound) op.responses['404'] = { $ref: '#/components/responses/NotFound' };
+  if (options.rateLimited) op.responses['429'] = { $ref: '#/components/responses/RateLimited' };
+  if (options.conflict) op.responses['409'] = { description: options.conflict, content: { 'application/json': { schema: ref('Error') } } };
+  if (options.payment) op.responses['402'] = { description: options.payment, content: { 'application/json': { schema: ref('Error') } } };
+  if (options.unavailable) op.responses['503'] = { description: options.unavailable, content: { 'application/json': { schema: ref('Error') } } };
+  if (options.admin) op.responses['403'] = { $ref: '#/components/responses/Forbidden' };
+  return op;
+};
+
+Object.assign(window.testflowOpenApi.paths, {
+  [`${api}/advertising/config`]: {
+    get: adv('Advertising', 'Provider switches, ad units, placements and configuration issues', { security: false, response: ref('AdvertisingConfig'), description: 'The frontend reads this before rendering anything. A provider that is asked for but not usable (missing publisher id) is reported and treated as disabled. Publisher ids and ad-unit slots are public identifiers, not credentials.' }),
+  },
+  [`${api}/advertising/placements`]: {
+    get: adv('Advertising', 'List the approved placement registry', { security: false, response: { type: 'object', properties: { placements: { type: 'array', items: ref('Placement') } } } }),
+  },
+  [`${api}/advertising/placements/{id}`]: {
+    get: adv('Advertising', 'Get one placement', { security: false, parameters: [{ name: 'id', in: 'path', required: true, schema: ref('PlacementId') }], response: { type: 'object', properties: { placement: ref('Placement') } }, notFound: true }),
+  },
+  [`${api}/advertising/eligibility`]: {
+    get: adv('Advertising', 'Decide which providers may serve on a placement, for this caller', { security: false, errors: true, parameters: [{ name: 'placement', in: 'query', required: true, schema: ref('PlacementId') }, { name: 'consent', in: 'query', schema: { type: 'string', enum: ['granted', 'denied', 'unknown'], default: 'unknown' }, description: 'An assertion, not proof. `denied` is always honoured; `granted` only satisfies GOOGLE_ADSENSE_REQUIRE_CONSENT.' }], response: ref('Eligibility'), description: 'Optional session: a guest gets the anonymous policy, a signed-in student gets theirs. `eligible` means the provider is permitted, never that Google returned a creative.' }),
+  },
+  [`${api}/advertising/admin/health`]: {
+    get: adv('Advertising', 'Advertising configuration health and aggregated counts', { admin: true, response: ref('AdvertisingHealth'), description: 'Aggregated counts only, never per-student data. Reporting status is reported honestly, with no fabricated revenue.' }),
+  },
+  [`${api}/advertising/admin/reporting`]: {
+    get: adv('Advertising', 'Google AdSense reporting integration status', { admin: true, response: { type: 'object', properties: { reporting: ref('ReportingStatus') } } }),
+  },
+
+  [`${api}/billing/ad-free/products`]: {
+    get: adv('Billing', 'List the student plans that remove advertising', { security: false, response: { type: 'object', properties: { products: { type: 'array', items: ref('StudentPlan') } } }, description: 'Prices come from the server catalogue. Checkout takes a plan key and never a price.' }),
+  },
+  [`${api}/billing/entitlement`]: {
+    get: adv('Billing', 'Get what the signed-in student holds', { response: { type: 'object', properties: { entitlement: ref('StudentEntitlement') } }, description: 'Includes `liveCbtHost`, the gate the frontend reads before offering the host button.' }),
+  },
+  [`${api}/billing/ad-free/checkout`]: {
+    post: adv('Billing', 'Start a pass purchase', { body: ref('PlanCheckoutInput'), response: ref('PurchaseResponse'), created: true, errors: true, notFound: true, rateLimited: true, unavailable: 'PAYMENT_NOT_CONFIGURED: no payment provider is configured', description: 'Server-priced. A repeated `idempotencyKey` returns the original purchase with 200 instead of charging again. Rate limited per account.' }),
+  },
+  [`${api}/billing/ad-free/status`]: {
+    get: adv('Billing', 'Get the entitlement, and optionally re-verify one purchase', { errors: true, notFound: true, parameters: [{ name: 'reference', in: 'query', schema: { type: 'string' } }], response: { type: 'object', properties: { entitlement: ref('StudentEntitlement'), purchase: { ...ref('Purchase'), nullable: true } } }, description: 'With a reference, an unpaid purchase is re-verified with the provider, which is how the client learns the outcome when the webhook is not reachable.' }),
+  },
+  [`${api}/billing/ad-free/cancel`]: {
+    post: adv('Billing', 'Abandon your own pending purchase', { body: { type: 'object', required: ['reference'], additionalProperties: false, properties: { reference: str({ minLength: 6, maxLength: 120 }) } }, response: ref('PurchaseResponse'), notFound: true, description: 'Only a pending purchase. A paid one is a refund, which is an administrator action.' }),
+  },
+  [`${api}/billing/ad-free/refund`]: {
+    post: adv('Billing', 'Refund a purchase and revoke what it granted', { admin: true, body: { type: 'object', required: ['reference'], additionalProperties: false, properties: { reference: str({ minLength: 6, maxLength: 120 }), reason: str({ maxLength: 200 }) } }, response: ref('PurchaseResponse'), notFound: true, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Refunds with the provider first, then revokes exactly the entitlement that purchase granted.' }),
+  },
+  [`${api}/billing/ad-free/entitlements/{userId}/grant`]: {
+    post: adv('Billing', 'Grant an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), durationDays: int({ minimum: 1, maximum: 3650, description: 'Omitted means the grant does not expire' }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, created: true, notFound: true }),
+  },
+  [`${api}/billing/ad-free/entitlements/{userId}/revoke`]: {
+    post: adv('Billing', 'Revoke an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), reason: str({ maxLength: 200 }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, notFound: true, description: 'Keeps the row (the history) and clears liveness. Used for refunds, chargebacks and support corrections.' }),
+  },
+  [`${api}/billing/ad-free/webhook`]: {
+    post: adv('Billing', 'Payment provider webhook (Paystack)', { security: false, response: { type: 'object', properties: { applied: { type: 'boolean' }, duplicate: { type: 'boolean' }, ignored: { type: 'boolean' }, refunded: { type: 'boolean' }, reference: str() } }, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Authenticated by the HMAC over the raw body (`x-paystack-signature`), not by a session. A reference for another dispatcher is acknowledged and ignored. The transaction is re-verified with the provider before anything is granted; a redelivery is a no-op.' }),
+  },
+});
+
+Object.assign(window.testflowOpenApi.components.schemas, {
+  PlacementId: { type: 'string', enum: ['content_feed', 'desktop_sidebar', 'post_activity', 'exam_session', 'live_cbt', 'payment_checkout', 'auth'], description: 'An unregistered placement does not exist: it is a 404, never a best guess.' },
+  Placement: { type: 'object', properties: { id: ref('PlacementId'), label: str(), providers: { type: 'array', items: str({ enum: ['testflow', 'google_adsense'] }) }, devices: { type: 'array', items: str({ enum: ['mobile', 'tablet', 'desktop'] }) }, contexts: { type: 'array', items: str() }, sensitive: { type: 'boolean', description: 'Exams, live rooms, checkout and auth. Set true, this can never be enabled by configuration' }, registered: { type: 'boolean' }, enabled: { type: 'boolean' } } },
+  AdProviderConfig: { type: 'object', properties: { id: str(), label: str(), kind: str({ enum: ['internal', 'external'] }), enabled: { type: 'boolean' }, configured: { type: 'boolean', description: 'False when the provider is asked for but cannot actually serve' }, requested: { type: 'boolean' }, publisherId: str({ nullable: true, description: 'Public page-level identifier, not a credential' }), adUnits: { type: 'object', additionalProperties: str(), description: 'placement → slot id' }, requireConsent: { type: 'boolean' }, reporting: ref('ReportingStatus') } },
+  AdvertisingConfig: { type: 'object', properties: { version: int(), providers: { type: 'object', properties: { testflow: ref('AdProviderConfig'), google_adsense: ref('AdProviderConfig') } }, placements: { type: 'array', items: ref('Placement') }, issues: { type: 'array', items: { type: 'object', properties: { level: str({ enum: ['warn', 'error'] }), provider: str(), code: str(), message: str() } } } } },
+  EligibilityProvider: { type: 'object', properties: { eligible: { type: 'boolean', description: 'Permitted, not guaranteed to fill' }, reason: str({ enum: ['ELIGIBLE', 'PLACEMENT_RESTRICTED', 'PLACEMENT_PROVIDER_UNSUPPORTED', 'AD_FREE_ENTITLEMENT', 'CONSENT_WITHHELD', 'CONSENT_REQUIRED', 'PROVIDER_DISABLED', 'AUTH_REQUIRED'] }) } },
+  Eligibility: { type: 'object', properties: { placement: ref('PlacementId'), service: { type: 'array', items: str(), description: 'The contexts this placement is approved for' }, placementKnown: { type: 'boolean' }, placementEnabled: { type: 'boolean' }, authenticated: { type: 'boolean' }, consent: str({ enum: ['granted', 'denied', 'unknown'] }), adFree: { type: 'boolean', description: 'A verified paid entitlement, never a client claim' }, entitlementStatus: str({ enum: ['free', 'active', 'expired'] }), providers: { type: 'object', properties: { testflow: ref('EligibilityProvider'), google_adsense: ref('EligibilityProvider') } }, adsEnabled: { type: 'boolean' }, reason: { nullable: true, type: 'string', description: 'Why nothing may serve, when nothing may serve' }, configVersion: int(), checkedAt: str({ format: 'date-time' }) } },
+  StudentPlan: { type: 'object', properties: { key: str({ enum: ['pass_30d', 'pass_90d'] }), name: str(), description: str(), priceMinor: int({ description: 'Minor units (kobo)' }), currency: str({ example: 'NGN' }), durationDays: int(), removesAds: { type: 'boolean' }, entitlements: { type: 'object', properties: { adFree: { type: 'boolean' }, liveCbtHost: { type: 'boolean' } } } } },
+  EntitlementKey: { type: 'string', enum: ['ad_free', 'live_cbt_host'], description: 'ad_free suppresses both advertising providers. live_cbt_host only unlocks hosting a live CBT session, and suppresses nothing.' },
+  StudentEntitlement: { type: 'object', properties: { userId: ref('ObjectId'), status: str({ enum: ['free', 'active', 'expired'] }), planKey: str({ nullable: true }), entitlements: { type: 'object', properties: { ad_free: { type: 'boolean' }, live_cbt_host: { type: 'boolean' } } }, adFree: { type: 'boolean' }, liveCbtHost: { type: 'boolean' }, activeKeys: { type: 'array', items: ref('EntitlementKey') }, expiresAt: str({ format: 'date-time', nullable: true, description: 'Null means it does not expire' }), lastPaidAt: str({ format: 'date-time', nullable: true }), verifiedAt: str({ format: 'date-time' }) } },
+  PlanCheckoutInput: { type: 'object', required: ['planKey'], additionalProperties: false, properties: { planKey: str({ enum: ['pass_30d', 'pass_90d'] }), idempotencyKey: str({ minLength: 8, maxLength: 120 }) } },
+  Purchase: { type: 'object', properties: { id: ref('ObjectId'), reference: str(), planKey: str(), planName: str({ nullable: true }), amountKobo: int(), currency: str(), status: str({ enum: ['initialized', 'paid', 'failed', 'abandoned', 'refunded'] }), provider: str({ enum: ['paystack', 'none'] }), authorizationUrl: str({ format: 'uri', nullable: true, description: 'Only while the purchase is initialized' }), paidAt: str({ format: 'date-time', nullable: true }), verifiedAt: str({ format: 'date-time', nullable: true }), refundedAt: str({ format: 'date-time', nullable: true }), createdAt: str({ format: 'date-time' }) } },
+  PurchaseResponse: { type: 'object', properties: { purchase: ref('Purchase') } },
+  ReportingStatus: { type: 'object', properties: { provider: str({ example: 'adsense_management_api' }), enabled: { type: 'boolean' }, configured: { type: 'boolean' }, status: str({ enum: ['disabled', 'not_configured', 'ok', 'error'] }), scope: str(), lastSyncAt: str({ format: 'date-time', nullable: true }), lastError: str({ nullable: true }), note: str({ description: 'Publisher metrics come from Google, never from frontend render events.' }) } },
+  AdvertisingHealth: { type: 'object', properties: { providers: { type: 'object', properties: { testflow: { type: 'object', properties: { enabled: { type: 'boolean' } } }, google_adsense: { type: 'object', properties: { enabled: { type: 'boolean' }, requested: { type: 'boolean' }, configured: { type: 'boolean' }, requireConsent: { type: 'boolean' } } } } }, placements: { type: 'object', properties: { registered: int(), enabled: int(), enabledIds: { type: 'array', items: ref('PlacementId') } } }, entitlements: { type: 'object', properties: { adFree: int(), liveCbtHost: int() } }, purchases: { type: 'object', properties: { paid: int(), pending: int() } }, reporting: ref('ReportingStatus'), issues: { type: 'array', items: { type: 'object' } }, checkedAt: str({ format: 'date-time' }) } },
+});
+
+// ---------------------------------------------------------------------------
+// Everybody: organizations, members, invitations, org subscriptions, the site
+// builder and the super-admin console. Resolves the refs the paths above use.
+// ---------------------------------------------------------------------------
+Object.assign(window.testflowOpenApi.components.schemas, {
+  OrgRole: { type: 'string', enum: ['owner', 'admin', 'examiner', 'student'], description: 'Descending authority. Only owner and admin manage members, the site and billing.' },
+  OrgStatus: { type: 'string', enum: ['active', 'suspended', 'closed'], description: 'A suspended or closed organization can no longer be edited.' },
+  OrgCreateInput: { type: 'object', required: ['name'], additionalProperties: false, properties: { name: str({ minLength: 2, maxLength: 120 }), slug: str({ minLength: 3, maxLength: 30, description: 'Subdomain: lowercase letters, digits and single hyphens. Reserved words (www, api, admin, ads, everybody, ...) and consecutive hyphens are refused. Derived from the name when omitted.' }), contactEmail: str({ format: 'email', maxLength: 254 }), timezone: str({ maxLength: 64, example: 'Africa/Lagos' }) } },
+  OrgUpdateInput: { type: 'object', additionalProperties: false, description: 'At least one field. The slug is immutable.', properties: { name: str({ minLength: 2, maxLength: 120 }), contactEmail: str({ format: 'email' }), timezone: str({ maxLength: 64 }) } },
+  OrgSummary: { type: 'object', description: 'An organization, plus the caller role when the response carries one.', properties: { id: ref('ObjectId'), name: str(), slug: str(), status: ref('OrgStatus'), contactEmail: str({ nullable: true }), timezone: str({ nullable: true }), createdAt: str({ format: 'date-time' }), updatedAt: str({ format: 'date-time' }), myRole: ref('OrgRole') } },
+  OrgView: { type: 'object', properties: { organization: ref('OrgSummary'), myRole: ref('OrgRole') } },
+  OrgsList: { type: 'object', properties: { items: { type: 'array', items: ref('OrgSummary') }, page: int(), limit: int(), total: int() } },
+  MemberUser: { type: 'object', description: 'The member account, populated as {_id, fullName, email}.', properties: { _id: ref('ObjectId'), fullName: str(), email: str({ format: 'email' }) } },
+  Member: { type: 'object', properties: { id: ref('ObjectId'), user: ref('MemberUser'), role: ref('OrgRole'), status: str({ enum: ['active', 'suspended', 'removed'] }), studentRef: str({ nullable: true }), joinedAt: str({ format: 'date-time', nullable: true }) } },
+  MemberView: { type: 'object', properties: { member: ref('Member') } },
+  MembersList: { type: 'object', properties: { items: { type: 'array', items: ref('Member') }, page: int(), limit: int(), total: int() } },
+  MemberUpdateInput: { type: 'object', additionalProperties: false, description: 'At least one of role and status.', properties: { role: str({ enum: ['admin', 'examiner', 'student'] }), status: str({ enum: ['active', 'suspended', 'removed'] }) } },
+  OrgInviteInput: { type: 'object', required: ['email', 'role'], additionalProperties: false, properties: { email: str({ format: 'email', maxLength: 254 }), role: str({ enum: ['admin', 'examiner', 'student'], description: 'A second owner cannot be invited.' }) } },
+  Invitation: { type: 'object', properties: { id: ref('ObjectId'), email: str({ format: 'email' }), role: str({ enum: ['admin', 'examiner', 'student'] }), expiresAt: str({ format: 'date-time' }) } },
+  InviteResponse: { type: 'object', properties: { invitation: ref('Invitation'), token: str({ description: 'The raw invitation token, returned once. Send it to /v1/everybody/invitations/accept.' }) } },
+  AcceptInviteInput: { type: 'object', required: ['token'], additionalProperties: false, properties: { token: str({ minLength: 1, maxLength: 256 }) } },
+  AcceptInviteResponse: { type: 'object', properties: { member: ref('Member'), organizationId: ref('ObjectId') } },
+  OrgEntitlements: { type: 'object', description: 'What an active organization plan turns on. null means no limit.', properties: { adsEnabled: { type: 'boolean' }, maxStudents: { type: 'integer', nullable: true }, maxActiveExams: { type: 'integer', nullable: true }, maxExamsPerMonth: { type: 'integer', nullable: true }, customDomain: { type: 'boolean' }, storageMb: { type: 'integer', nullable: true }, communityEnabled: { type: 'boolean' } } },
+  OrgSubscription: { type: 'object', properties: { id: ref('ObjectId'), organizationId: ref('ObjectId'), planKey: str({ enum: ['pro', 'studio'] }), status: str({ enum: ['pending', 'active', 'past_due', 'expired', 'cancelled'] }), planSnapshot: { type: 'object', nullable: true, properties: { priceMinor: int(), currency: str(), entitlements: ref('OrgEntitlements') } }, currentPeriodStart: str({ format: 'date-time', nullable: true }), currentPeriodEnd: str({ format: 'date-time', nullable: true }), cancelAtPeriodEnd: { type: 'boolean', description: 'Keep the plan until the period ends, then stop.' }, pendingPlanKey: str({ enum: ['pro', 'studio'], nullable: true }), provider: str({ enum: ['paystack', 'none'], nullable: true }), reference: str({ description: 'The string handed to the payment provider; give it back to verify.' }), createdAt: str({ format: 'date-time', nullable: true }), myRole: ref('OrgRole') } },
+  SubscriptionResponse: { type: 'object', properties: { subscription: ref('OrgSubscription'), myRole: ref('OrgRole') } },
+  SubsList: { type: 'object', properties: { subscriptions: { type: 'array', items: ref('OrgSubscription') } } },
+  SubscriptionCreateInput: { type: 'object', required: ['planKey'], additionalProperties: false, properties: { planKey: str({ enum: ['pro', 'studio'] }) } },
+  SubscriptionUpdateInput: { type: 'object', additionalProperties: false, properties: { cancelAtPeriodEnd: { type: 'boolean' }, planKey: str({ enum: ['pro', 'studio'], description: 'Move to another plan; the subscription returns to pending until it is paid.' }) } },
+  CheckoutResponse: { type: 'object', properties: { paymentId: str({ description: 'In v1, the provider reference.' }), reference: str(), amountKobo: int(), currency: str({ example: 'NGN' }), authorizationUrl: str({ format: 'uri', description: 'Where to send the payer next.' }) } },
+  SubscriptionVerification: { type: 'object', properties: { subscription: ref('OrgSubscription'), entitlements: ref('OrgEntitlements') } },
+  SiteTemplateList: { type: 'object', properties: { templates: { type: 'array', items: str({ enum: ['classic', 'modern', 'minimal'] }) } } },
+  SiteContent: { type: 'object', description: 'The editable part of a site config. Every field is optional on a PATCH; only what is sent is changed.', properties: { brand: { type: 'object', properties: { name: str({ maxLength: 120 }), logoAssetId: ref('ObjectId'), faviconAssetId: ref('ObjectId'), primaryColor: str({ example: '#0f172a', description: 'Hex, 3 or 6 digits' }), accentColor: str({ example: '#63a9ff' }) } }, seo: { type: 'object', properties: { title: str({ maxLength: 70 }), description: str({ maxLength: 160 }) } }, nav: { type: 'array', maxItems: 8, items: { type: 'object', required: ['label', 'href'], properties: { label: str({ maxLength: 50 }), href: str({ maxLength: 2048 }) } } }, sections: { type: 'array', maxItems: 12, items: { type: 'object', description: 'A template-defined block.' } } } },
+  SiteDraftInput: { allOf: [ref('SiteContent')], description: 'The draft PATCH body. Same shape as SiteContent: every field is optional, unknown keys are refused.' },
+  SiteConfig: { type: 'object', description: 'Stored as a lean document, so the id is `_id`.', properties: { _id: ref('ObjectId'), organization: ref('ObjectId'), templateKey: str({ enum: ['classic', 'modern', 'minimal'] }), draft: ref('SiteContent'), published: { allOf: [ref('SiteContent')], description: 'Absent until the site is published once.' }, publishedVersion: int(), draftVersion: int(), createdAt: str({ format: 'date-time' }), updatedAt: str({ format: 'date-time' }) } },
+  SiteResponse: { type: 'object', properties: { site: ref('SiteConfig') } },
+  SitePreviewResponse: { type: 'object', properties: { preview: { type: 'object', properties: { config: ref('SiteContent'), version: int() } }, expiresIn: int({ example: 300 }) } },
+  SiteAssetInput: { type: 'object', required: ['kind'], additionalProperties: false, properties: { kind: str({ enum: ['logo', 'favicon', 'hero', 'image'] }) } },
+  SiteAssetResponse: { type: 'object', properties: { asset: { type: 'object', properties: { id: ref('ObjectId'), kind: str(), url: str({ description: 'A placeholder until the upload pipeline lands.' }) } } } },
+  OrgReasonInput: { type: 'object', additionalProperties: false, properties: { reason: str({ maxLength: 500 }) } },
+  OrgPlanInput: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: str({ enum: ['pro', 'studio'] }), priceMinor: int({ minimum: 0, description: 'Minor units (kobo)' }), available: { type: 'boolean' } } },
+  PlanDefinition: { type: 'object', properties: { key: str({ enum: ['pro', 'studio'] }), name: str(), priceMinor: int(), currency: str({ example: 'NGN' }), interval: str({ enum: ['month', 'year'] }), available: { type: 'boolean' }, entitlements: ref('OrgEntitlements'), sortOrder: int() } },
+  AdminOrg: { type: 'object', description: 'A lean organization row in the super-admin console.', properties: { _id: ref('ObjectId'), name: str(), slug: str(), status: ref('OrgStatus'), contactEmail: str({ nullable: true }), timezone: str({ nullable: true }), createdAt: str({ format: 'date-time' }) } },
+  AdminOrgList: { type: 'object', properties: { orgs: { type: 'array', items: ref('AdminOrg') }, page: int(), limit: int(), total: int() } },
+  AdminOrgResponse: { type: 'object', properties: { org: ref('AdminOrg') } },
+  AdminOrgPlanResponse: { type: 'object', description: 'The edit is queued on the organization as `planEditPending`; it is not applied to the plan definition immediately.', properties: { org: ref('AdminOrg'), planDef: ref('PlanDefinition') } },
+});
+
+// ---------------------------------------------------------------------------
+// Live CBT. The room, the participant paper, the result and the event stream.
+// ---------------------------------------------------------------------------
+Object.assign(window.testflowOpenApi.components.schemas, {
+  LiveStatus: { type: 'string', enum: ['draft', 'waiting', 'ready', 'in_progress', 'completed', 'results_published', 'cancelled'] },
+  LiveAttemptStatus: { type: 'string', enum: ['waiting', 'in_progress', 'submitted', 'timed_out'] },
+  LiveParticipantStatus: { type: 'string', enum: ['pending', 'approved', 'rejected', 'removed'] },
+  LiveCounts: { type: 'object', properties: { participantCount: int({ description: 'Pending plus approved.' }), pendingCount: int(), approvedCount: int() } },
+  LiveCreateInput: { type: 'object', required: ['title', 'numQuestions', 'durationMinutes'], additionalProperties: false, description: 'At least one of `subject` and `questionIds`. `questionIds` wins when both are sent.', properties: { title: str({ minLength: 3, maxLength: 200 }), description: str({ maxLength: 2000 }), subject: str({ maxLength: 24, description: 'A subject id or a course code' }), questionIds: { type: 'array', minItems: 1, maxItems: 200, items: ref('ObjectId') }, numQuestions: int({ minimum: 1, maximum: 200 }), durationMinutes: int({ minimum: 1, maximum: 240 }), maxParticipants: int({ minimum: 1, maximum: 30 }), difficulty: str({ enum: ['mixed', 'easy', 'medium', 'hard'], default: 'mixed' }), shuffleQuestions: { type: 'boolean', default: true }, shuffleOptions: { type: 'boolean', default: true }, negativeMarking: { type: 'number', minimum: 0, maximum: 5, default: 0 }, marksPerQuestion: { type: 'number', minimum: 0.5, maximum: 100, default: 1 }, allowReview: { type: 'boolean', default: true, description: 'Whether participants see corrections once the results are published.' } } },
+  LiveRoom: { type: 'object', description: 'The room as its members see it. Never question content, answer keys, emails or internal ids.', properties: { id: ref('ObjectId'), shareCode: str(), shareUrl: str({ description: 'The link a student opens to find the room.' }), title: str(), description: str(), status: ref('LiveStatus'), durationMinutes: int(), maxParticipants: { type: 'integer', nullable: true }, numQuestions: int(), difficulty: str(), negativeMarking: { type: 'number' }, marksPerQuestion: { type: 'number' }, allowReview: { type: 'boolean' }, startedAt: str({ format: 'date-time', nullable: true }), endsAt: str({ format: 'date-time', nullable: true }), serverTime: str({ format: 'date-time', description: 'Authoritative clock. Count down from startedAt and endsAt, never from the client clock.' }), hostName: str({ nullable: true, description: 'Set on the public landing and the room read.' }), participantCount: int(), pendingCount: int(), approvedCount: int() } },
+  LiveMembership: { type: 'object', nullable: true, description: 'The caller own participant row, or null before joining.', properties: { status: ref('LiveParticipantStatus'), attemptStatus: ref('LiveAttemptStatus'), sequenceNumber: { type: 'integer', nullable: true } } },
+  LiveRoomWithHost: { allOf: [ref('LiveRoom'), { type: 'object', properties: { hostId: ref('ObjectId') } }] },
+  LiveRoomMembership: { allOf: [ref('LiveRoom'), { type: 'object', properties: { membership: ref('LiveMembership') } }] },
+  LiveParticipantRow: { type: 'object', properties: { userId: ref('ObjectId'), displayName: str(), email: str({ format: 'email', nullable: true }), status: ref('LiveParticipantStatus'), sequenceNumber: { type: 'integer', nullable: true, description: 'The deterministic tie-breaker, allocated at approval.' }, attemptStatus: ref('LiveAttemptStatus'), submittedAt: str({ format: 'date-time', nullable: true }), score: { type: 'number', nullable: true }, rank: { type: 'integer', nullable: true } } },
+  LiveHostRoom: { allOf: [ref('LiveRoom'), { type: 'object', properties: { participants: { type: 'array', items: ref('LiveParticipantRow') } } }] },
+  LiveRoomCreateResponse: { type: 'object', properties: { exam: ref('LiveRoomWithHost') } },
+  LiveMembershipResponse: { type: 'object', properties: { room: ref('LiveRoomMembership') } },
+  LiveHostRoomResponse: { type: 'object', properties: { room: ref('LiveHostRoom') } },
+  LiveExamResponse: { type: 'object', properties: { exam: ref('LiveRoom') } },
+  LiveLandingResponse: { type: 'object', properties: { exam: ref('LiveRoom') } },
+  LiveJoinResponse: { type: 'object', properties: { status: ref('LiveParticipantStatus'), duplicate: { type: 'boolean', description: 'True when the request had already been made; the stored status is returned.' }, counts: ref('LiveCounts') } },
+  LiveTargetInput: { type: 'object', required: ['userId'], additionalProperties: false, properties: { userId: ref('ObjectId') } },
+  LiveApprovalResponse: { type: 'object', properties: { status: ref('LiveParticipantStatus'), sequenceNumber: { type: 'integer', nullable: true }, counts: ref('LiveCounts') } },
+  LiveApproveAllResponse: { type: 'object', properties: { approved: int({ description: 'How many were approved in this call.' }), counts: ref('LiveCounts') } },
+  LivePaperQuestion: { type: 'object', properties: { index: int(), stem: str(), options: { type: 'array', items: str() }, selectedOption: { type: 'integer', nullable: true } } },
+  LivePaper: { type: 'object', description: 'One participant paper, in its own served order. No answer keys.', properties: { shareCode: str(), title: str(), status: ref('LiveStatus'), durationMinutes: int(), startedAt: str({ format: 'date-time' }), endsAt: str({ format: 'date-time' }), serverTime: str({ format: 'date-time' }), remainingSeconds: int(), totalQuestions: int(), attemptStatus: ref('LiveAttemptStatus'), questions: { type: 'array', items: ref('LivePaperQuestion') } } },
+  LivePaperResponse: { type: 'object', properties: { exam: ref('LivePaper') } },
+  LiveAnswerInput: { type: 'object', required: ['questionIndex', 'selectedOption'], additionalProperties: false, properties: { questionIndex: int({ minimum: 0, maximum: 199 }), selectedOption: { type: 'integer', minimum: 0, maximum: 5, nullable: true, description: 'Null clears the answer.' } } },
+  LiveAnswerAck: { type: 'object', properties: { questionIndex: int(), selectedOption: { type: 'integer', nullable: true }, serverTime: str({ format: 'date-time' }) } },
+  LiveAnswerResponse: { type: 'object', properties: { answer: ref('LiveAnswerAck') } },
+  LiveSubmitInput: { type: 'object', additionalProperties: false, description: 'The whole body is optional. `answers` is the part of the paper the client never managed to autosave.', properties: { answers: { type: 'array', maxItems: 200, items: { type: 'object', required: ['questionIndex', 'selectedOption'], properties: { questionIndex: int({ minimum: 0, maximum: 199 }), selectedOption: { type: 'integer', minimum: 0, maximum: 5, nullable: true } } } } } },
+  LiveSubmission: { type: 'object', description: 'Score, correctCount and rank stay null until the host publishes the results.', properties: { attemptStatus: ref('LiveAttemptStatus'), score: { type: 'number', nullable: true }, correctCount: { type: 'integer', nullable: true }, rank: { type: 'integer', nullable: true }, submittedAt: str({ format: 'date-time' }), resultsReleased: { type: 'boolean' }, answersAccepted: int(), answersRejected: { type: 'boolean', description: 'True when a late batch arrived after the sitting was sealed.' } } },
+  LiveSubmissionResponse: { type: 'object', properties: { result: ref('LiveSubmission') } },
+  LiveCorrection: { type: 'object', properties: { index: int(), stem: str(), options: { type: 'array', items: str() }, selectedOption: { type: 'integer', nullable: true }, correctOption: int(), isCorrect: { type: 'boolean' }, explanation: { type: 'string', nullable: true }, marksAwarded: { type: 'number', description: 'The marks per question when correct, minus the negative marking when wrong, 0 when unanswered.' } } },
+  LiveResult: { type: 'object', properties: { shareCode: str(), title: str(), rank: { type: 'integer', nullable: true }, score: { type: 'number' }, totalPossible: { type: 'number', nullable: true }, correctCount: int(), incorrectCount: int(), unansweredCount: int(), accuracy: { type: 'number', nullable: true, description: 'A percentage, 2 decimal places.' }, timeTakenSeconds: { type: 'integer', nullable: true }, durationMinutes: int(), attemptStatus: ref('LiveAttemptStatus'), submittedAt: str({ format: 'date-time' }), corrections: { type: 'array', nullable: true, items: ref('LiveCorrection'), description: 'Null when the host set allowReview to false.' } } },
+  LiveResultResponse: { type: 'object', properties: { result: ref('LiveResult') } },
+  LiveRankingRow: { type: 'object', properties: { userId: ref('ObjectId'), displayName: str(), email: str({ format: 'email', nullable: true }), attemptStatus: ref('LiveAttemptStatus'), score: { type: 'number', nullable: true }, correctCount: { type: 'integer', nullable: true }, accuracy: { type: 'number', nullable: true }, timeTakenSeconds: { type: 'integer', nullable: true }, rank: { type: 'integer', nullable: true }, sequenceNumber: { type: 'integer', nullable: true } } },
+  LiveQuestionStat: { type: 'object', properties: { questionId: ref('ObjectId'), stem: str(), attempts: int(), correct: int(), correctRate: { type: 'number', description: 'A percentage, 2 decimal places.' } } },
+  LiveDashboard: { allOf: [ref('LiveRoom'), { type: 'object', properties: { totals: { type: 'object', properties: { approved: int(), started: int(), submitted: int(), timedOut: int(), noShow: int() } }, rankings: { type: 'array', items: ref('LiveRankingRow') }, questionStats: { type: 'array', items: ref('LiveQuestionStat') } } }] },
+  LiveDashboardResponse: { type: 'object', properties: { dashboard: ref('LiveDashboard') } },
+  LiveEvent: { type: 'object', description: 'One room event, over the socket or the SSE stream. Every payload carries the event name and an authoritative serverTime.', properties: { event: str({ enum: ['connected', 'heartbeat', 'pong', 'participant.joined', 'participant.approved', 'participant.rejected', 'participant.submitted', 'room.updated', 'exam.started', 'exam.timed_out', 'exam.ended', 'results.published', 'exam.cancelled'] }), serverTime: str({ format: 'date-time' }), shareCode: str(), status: ref('LiveStatus'), startedAt: str({ format: 'date-time' }), endsAt: str({ format: 'date-time' }), counts: ref('LiveCounts'), userId: ref('ObjectId'), approved: int(), autoSubmitted: int() } },
 });

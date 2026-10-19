@@ -40,6 +40,30 @@ const schema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   ADS_PAYMENT_CALLBACK_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
 
+  // --- Advertising (provider selection + Google AdSense) ---
+  // The internal Testflow Ads marketplace has its own switches; this only controls whether the
+  // advertising eligibility service offers it as an option. Kept separate so a Google problem
+  // can never take Testflow Ads down, and vice versa.
+  ADVERTISING_TESTFLOW_ENABLED: z.enum(['true', 'false']).default('true'),
+  GOOGLE_ADSENSE_ENABLED: z.enum(['true', 'false']).default('false'),
+  // Public identifier (it ships in the page anyway). Not a secret, not a credential.
+  GOOGLE_ADSENSE_PUBLISHER_ID: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().regex(/^ca-pub-\d{10,20}$/, 'Expected a publisher id like ca-pub-1234567890123456').optional(),
+  ),
+  // "placement:slotId" pairs, comma separated. e.g. content_feed:1234567890,desktop_sidebar:2345678901
+  GOOGLE_ADSENSE_AD_UNITS: z.string().optional(),
+  // Regional/marketing requirement for personalized advertising. Off by default: without a real
+  // consent-management signal the backend only ever enforces a refusal, never infers one.
+  GOOGLE_ADSENSE_REQUIRE_CONSENT: z.enum(['true', 'false']).default('false'),
+  // AdSense Management API reporting. Off until OAuth credentials exist (see docs/advertising.md).
+  GOOGLE_ADSENSE_REPORTING_ENABLED: z.enum(['true', 'false']).default('false'),
+  // Approved placements. Empty allow list = the registry defaults. A sensitive placement can never
+  // be enabled, whatever this says.
+  ADVERTISING_PLACEMENTS_ENABLED: z.string().optional(),
+  ADVERTISING_PLACEMENTS_DISABLED: z.string().optional(),
+  AD_FREE_CALLBACK_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+
   // Cloudflare R2 object storage (S3-compatible). Optional at boot; required to upload files.
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),

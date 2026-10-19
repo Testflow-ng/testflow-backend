@@ -46,7 +46,8 @@ app.use(
     limit: '5mb',
     // The payment webhook signature is computed over the exact raw bytes.
     verify: (req, _res, buf) => {
-      if (req.originalUrl.startsWith('/api/ads/payments/webhook')) req.rawBody = buf;
+      const url = req.originalUrl;
+      if (url.startsWith('/api/ads/payments/webhook') || url.startsWith('/api/billing/ad-free/webhook')) req.rawBody = buf;
     },
   }),
 );

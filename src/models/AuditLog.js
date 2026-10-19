@@ -62,6 +62,10 @@ const auditLogSchema = new mongoose.Schema(
         'SUBSCRIPTION_LIFECYCLE',
         'SUBSCRIPTION_CLEANUP',
         'SUBSCRIPTION_PAYMENT_VERIFIED',
+        'AD_FREE_PURCHASE_VERIFIED',
+        'AD_FREE_REFUND',
+        'ENTITLEMENT_GRANT',
+        'ENTITLEMENT_REVOKE',
         'CREATE_STUDENT',
         'PROMOTE_ADMIN',
         'DEMOTE_ADMIN',
@@ -73,7 +77,7 @@ const auditLogSchema = new mongoose.Schema(
       ]
     },
     targetId: { type: mongoose.Schema.Types.ObjectId }, // ID of the user/subject/question affected
-    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization', 'Feedback', 'QuestionFlag'] },
+    targetType: { type: String, enum: ['User', 'Subject', 'Question', 'Campaign', 'AdSettings', 'AdPayment', 'Organization', 'Feedback', 'QuestionFlag', 'StudentPurchase', 'StudentEntitlement'] },
     metadata: { type: mongoose.Schema.Types.Mixed }, // Any additional info (e.g. subject code)
     ip: { type: String },
     userAgent: { type: String }

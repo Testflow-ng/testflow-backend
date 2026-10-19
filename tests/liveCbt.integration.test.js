@@ -60,10 +60,17 @@ describe('Live CBT delivery (integration)', { skip }, () => {
     return { c, email, userId: String(user._id) };
   };
 
+  /**
+   * Hosting is the paid side of Live CBT (the `live_cbt_host` entitlement); joining is free.
+   * These fixtures grant it directly, as an administrator grant would.
+   */
+  const grantHosting = (userId) => m.StudentEntitlement.create({ user: userId, key: 'live_cbt_host', source: 'admin' });
+
   /** Host + one approved participant, exam already running. Returns the share code and the paper. */
   const runningExam = async ({ numQuestions = 8, durationMinutes = 30 } = {}) => {
     const host = await account();
     const student = await account();
+    await grantHosting(host.userId);
     const created = await host.c.call('POST', '/live-cbt', {
       body: { title: `Live ${uniq()}`, subject: 'LIV101', numQuestions, durationMinutes },
     });
@@ -97,6 +104,7 @@ describe('Live CBT delivery (integration)', { skip }, () => {
       Question: (await import('../src/models/Question.js')).Question,
       LiveExam: (await import('../src/models/LiveExam.js')).LiveExam,
       LiveParticipant: (await import('../src/models/LiveParticipant.js')).LiveParticipant,
+      StudentEntitlement: (await import('../src/models/StudentEntitlement.js')).StudentEntitlement,
     };
     await Promise.all(Object.values(mongoose.models).map((mod) => mod.init()));
 
@@ -129,6 +137,24 @@ describe('Live CBT delivery (integration)', { skip }, () => {
       await m.mongoose.connection.dropDatabase();
       await m.mongoose.disconnect();
     }
+  });
+
+  it('refuses to host without a plan, and allows it once the entitlement is held', async () => {
+    const host = await account();
+    const body = { title: `Gate ${uniq()}`, subject: 'LIV101', numQuestions: 5, durationMinutes: 10 };
+
+    const blocked = await host.c.call('POST', '/live-cbt', { body });
+    assert.equal(blocked.status, 402, JSON.stringify(blocked.json));
+    assert.equal(blocked.json.error.code, 'PLAN_REQUIRED');
+
+    await grantHosting(host.userId);
+    const allowed = await host.c.call('POST', '/live-cbt', { body });
+    assert.equal(allowed.status, 201, JSON.stringify(allowed.json));
+
+    // Joining stays free: a planless student can still sit someone else's exam.
+    const joiner = await account();
+    const joined = await joiner.c.call('POST', `/live-cbt/${allowed.json.exam.shareCode}/join`);
+    assert.equal(joined.status, 201, JSON.stringify(joined.json));
   });
 
   it('hands the paper out once, and never with the answer key', async () => {
