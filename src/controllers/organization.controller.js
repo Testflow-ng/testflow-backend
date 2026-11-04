@@ -1,0 +1,229 @@
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { AppError } from '../utils/AppError.js';
+import * as orgs from '../services/organization.service.js';
+import { Subscription } from '../models/Subscription.js';
+import { PlanDefinition } from '../models/PlanDefinition.js';
+import * as subs from '../services/orgSubscription.service.js';
+import { recordAction } from '../services/audit.service.js';
+import { emailOrgInvitation, inviteLink } from '../services/orgNotify.service.js';
+
+export const create = asyncHandler(async (req, res) => {
+  const org = await orgs.createOrganization(req.user, req.body, req);
+  res.status(201).json({ organization: orgs.orgView(org), myRole: 'owner' });
+});
+
+export const listMine = asyncHandler(async (req, res) => {
+  res.json(await orgs.listMyOrganizations(req.user._id, req.query));
+});
+
+export const get = asyncHandler(async (req, res) => {
+  res.json({ organization: orgs.orgView(req.org), myRole: req.orgMembership.role });
+});
+
+export const patch = asyncHandler(async (req, res) => {
+  const updated = await orgs.updateOrganization(req.org, req.body, req);
+  res.json({ organization: orgs.orgView(updated) });
+});
+
+export const listMembers = asyncHandler(async (req, res) => {
+  res.json(await orgs.listMembers(req.org._id, req.query));
+});
+
+export const invite = asyncHandler(async (req, res) => {
+  const addresses = [...new Set((req.body.emails ?? [req.body.email]).map((e) => String(e).toLowerCase()))];
+  const invitations = [];
+  for (const email of addresses) {
+    const { invitation, token } = await orgs.inviteMember(
+      req.org, req.orgMembership, { email, role: req.body.role, expiresInDays: req.body.expiresInDays }, req,
+    );
+    // The invitee is emailed under the organisation's name. The link is returned too, so an owner can
+    // send it by WhatsApp instead; it still only works for the account that owns this address.
+    const link = inviteLink(token);
+    emailOrgInvitation(req.org, { email, role: invitation.role, token, inviterName: req.user?.fullName });
+    invitations.push({
+      id: String(invitation._id), email: invitation.email, role: invitation.role, expiresAt: invitation.expiresAt, token, link,
+    });
+  }
+  // `invitation` and `token` keep the single-invite shape that older callers read.
+  res.status(201).json({ invitations, invitation: invitations[0], token: invitations[0].token });
+});
+
+export const patchMember = asyncHandler(async (req, res) => {
+  const updated = await orgs.updateMember(req.org, req.orgMembership, req.params.memberId, req.body, req);
+  res.json({ member: orgs.memberView(updated) });
+});
+
+export const deleteMember = asyncHandler(async (req, res) => {
+  const updated = await orgs.removeMember(req.org, req.orgMembership, req.params.memberId, req);
+  res.json({ member: orgs.memberView(updated) });
+});
+
+export const acceptInvite = asyncHandler(async (req, res) => {
+  const membership = await orgs.acceptInvitation(req.user, req.body.token, req);
+  res.status(201).json({ member: orgs.memberView(membership), organizationId: String(membership.organization) });
+});
+
+export const createSubscription = asyncHandler(async (req, res) => {
+  const org = req.org;
+  const { planKey } = req.body;
+  if (!planKey || !['pro', 'studio'].includes(planKey)) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'planKey must be "pro" or "studio".');
+  }
+  // One live paid subscription at a time. A pending one is already waiting on the provider, and
+  // letting a second through would stack two checkouts against the same org. The default Free
+  // subscription is not "in progress": buying Pro or Studio is what replaces it.
+  const existing = await Subscription.findOne({
+    organization: org._id,
+    status: { $in: ['pending', 'active'] },
+    planKey: { $ne: 'free' },
+  });
+  if (existing) throw new AppError(409, 'SUBSCRIPTION_EXISTS', 'Organization already has a subscription in progress.');
+  const planDef = await PlanDefinition.findOne({ key: planKey }).lean();
+  if (!planDef) throw new AppError(400, 'PLAN_UNAVAILABLE', `Plan "${planKey}" is not defined.`);
+  const sub = await Subscription.create({
+    organization: org._id,
+    planKey,
+    // Pending until the provider confirms. The period it grants is written by `verify`; this value
+    // only satisfies the required field in the meantime.
+    currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    planSnapshot: {
+      priceMinor: planDef.priceMinor,
+      currency: planDef.currency,
+      entitlements: planDef.entitlements,
+    },
+  });
+  await recordAction({
+    actorId: req.user._id, action: 'SUBSCRIPTION_CREATE', targetId: org._id, targetType: 'Organization',
+    metadata: { planKey }, req,
+  });
+  res.status(201).json({ subscription: orgs.subView(sub) });
+});
+
+export const listMySubs = asyncHandler(async (req, res) => {
+  const subs = await Subscription.find({ organization: req.org._id })
+    .populate('planKey')
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json({ subscriptions: subs.map(s => ({ ...orgs.subView(s), myRole: req.orgMembership.role })) });
+});
+
+export const getSub = asyncHandler(async (req, res) => {
+  const sub = await Subscription.findById(req.params.id)
+    .populate('planKey')
+    .lean();
+  if (!sub || String(sub.organization) !== String(req.org._id)) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
+  res.json({ subscription: orgs.subView(sub), myRole: req.orgMembership.role });
+});
+
+export const updateSub = asyncHandler(async (req, res) => {
+  const { cancelAtPeriodEnd, planKey } = req.body;
+  const sub = await Subscription.findOneAndUpdate(
+    { _id: req.params.id, organization: req.org._id },
+    { ...(cancelAtPeriodEnd !== undefined ? { cancelAtPeriodEnd } : {}),
+      ...(planKey !== undefined ? { planKey, status: 'pending' } : {}) },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!sub || String(sub.organization) !== String(req.org._id)) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
+  res.json({ subscription: orgs.subView(sub), myRole: req.orgMembership.role });
+});
+
+export const checkout = asyncHandler(async (req, res) => {
+  const sub = await Subscription.findOne({ _id: req.params.id, organization: req.org._id }).lean();
+  if (!sub) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
+  // In v1 we return a Paystack checkout; provider must be configured.
+  if (!process.env.PAYSTACK_SECRET_KEY) throw new AppError(503, 'PAYMENT_NOT_CONFIGURED', 'Payment provider not configured.');
+  const reference = `SUB-${sub._id.toString().slice(-6).toUpperCase()}`;
+  const amountKobo = sub.planSnapshot.priceMinor;
+  const authorizationUrl = `${process.env.CLIENT_URL}/subscription/pay?reference=${reference}`;
+  await recordAction({
+    actorId: req.user._id, action: 'SUBSCRIPTION_PAYMENT_VERIFIED', targetId: req.org._id, targetType: 'Organization',
+    metadata: { reference, amountKobo }, req,
+  });
+  res.json({ paymentId: reference, reference, amountKobo, currency: 'NGN', authorizationUrl });
+});
+
+export const verify = asyncHandler(async (req, res) => {
+  const ref = req.query.reference;
+  if (!ref) throw new AppError(400, 'INVALID_OR_EXPIRED_TOKEN', 'Reference required.');
+  // Re-verify with provider (Paystack). In v1 we just mark it paid locally.
+  const sub = await Subscription.findOne({ organization: req.org._id, status: 'pending' }).lean();
+  if (!sub) throw new AppError(404, 'NOT_FOUND', 'No pending subscription to verify.');
+  // Atomically claim: status != paid → paid
+  const updated = await Subscription.findOneAndUpdate(
+    { _id: sub._id, status: 'pending' },
+    { status: 'active', currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
+    { new: true },
+  );
+  if (!updated) throw new AppError(400, 'SUBSCRIPTION_EXISTS', 'Subscription already processed or not pending.');
+  // One active plan. The Free default and any older paid plan give way to the one just paid for.
+  await Subscription.updateMany(
+    { organization: req.org._id, _id: { $ne: updated._id }, status: 'active' },
+    { $set: { status: 'cancelled' } },
+  );
+  res.json({ subscription: orgs.subView(updated), entitlements: await orgs.entitlementsFor(req.org._id) });
+});
+
+const loadOwnSub = async (req) => {
+  const sub = await Subscription.findOne({ _id: req.params.id, organization: req.org._id });
+  if (!sub) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
+  return sub;
+};
+
+/** POST /api/v1/everybody/subscriptions/:id/upgrade — immediate prorated checkout, or a scheduled downgrade. */
+export const upgradeSub = asyncHandler(async (req, res) => {
+  const sub = await loadOwnSub(req);
+  const result = await subs.upgradeSubscription({
+    org: req.org,
+    user: req.user,
+    sub,
+    planKey: req.body?.planKey,
+    idempotencyKey: req.get('idempotency-key') ?? null,
+  });
+  if (result.downgrade || result.noop) {
+    await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_DOWNGRADE', targetId: sub._id, targetType: 'Organization', metadata: { planKey: req.body?.planKey }, req });
+    return res.json({});
+  }
+  await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_UPGRADE', targetId: sub._id, targetType: 'Organization', metadata: { planKey: req.body?.planKey, reference: result.reference }, req });
+  return res.status(result.reused ? 200 : 201).json(result);
+});
+
+/** POST /api/v1/everybody/subscriptions/:id/renew — a full-period checkout for the current plan. */
+export const renewSub = asyncHandler(async (req, res) => {
+  const sub = await loadOwnSub(req);
+  const result = await subs.renewSubscription({
+    org: req.org,
+    user: req.user,
+    sub,
+    idempotencyKey: req.get('idempotency-key') ?? null,
+  });
+  await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_RENEW', targetId: sub._id, targetType: 'Organization', metadata: { reference: result.reference }, req });
+  res.status(result.reused ? 200 : 201).json(result);
+});
+
+/**
+ * GET /api/v1/everybody/payments/verify?reference=
+ * Flat because the callback page knows only the reference. Access is checked by the payer's
+ * membership of the organisation on the payment.
+ */
+export const verifySubPayment = asyncHandler(async (req, res) => {
+  const result = await subs.verifySubscriptionPayment(req.user._id, req.query.reference);
+  const orgId = result.payment?.organization ?? result.subscription?.organization;
+  res.json({
+    status: result.status,
+    duplicate: Boolean(result.duplicate),
+    payment: result.payment ? subs.paymentView(result.payment) : null,
+    subscription: result.subscription ? orgs.subView(result.subscription) : null,
+    entitlements: orgId ? await orgs.entitlementsFor(orgId) : null,
+  });
+});
+
+/**
+ * POST /api/v1/everybody/subscriptions/webhook
+ * Paystack server-to-server: no cookie, so it is also exempted from the CSRF handshake. The
+ * signature covers the exact bytes (captured as `req.rawBody`), and the amount is checked against
+ * the payment before the plan is activated.
+ */
+export const webhook = asyncHandler(async (req, res) => {
+  const result = await subs.handleSubscriptionWebhook(req.rawBody, req.get('x-paystack-signature'), req.body);
+  res.json(result);
+});

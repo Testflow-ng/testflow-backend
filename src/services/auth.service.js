@@ -1,0 +1,208 @@
+import bcrypt from 'bcryptjs';
+import { User } from '../models/User.js';
+import { AppError } from '../utils/AppError.js';
+import { generateToken, hashToken } from '../utils/tokens.js';
+import { sendVerificationEmail, sendPasswordResetEmail } from './email.service.js';
+import { logger } from '../utils/logger.js';
+
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const RESET_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/** Generate a short, readable alphanumeric code for manual Post-UTME verification. */
+export const generateVerificationCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No O, 0, I, 1 to avoid confusion
+  let code = 'UTME-';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
+
+// Constant dummy hash so login runs bcrypt even for unknown emails (blunts timing enumeration).
+const DUMMY_HASH = bcrypt.hashSync('timing-attack-guard', 12);
+
+const issueVerification = async (user) => {
+  const token = generateToken();
+  user.emailVerifyTokenHash = hashToken(token);
+  user.emailVerifyExpires = new Date(Date.now() + VERIFY_TTL_MS);
+  await user.save();
+  await sendVerificationEmail(user, token);
+};
+
+export const register = async ({ fullName, email, password }) => {
+  const existing = await User.findOne({ email });
+  if (existing) {
+    throw new AppError(409, 'EMAIL_TAKEN', 'An account with this email already exists.');
+  }
+
+  let user;
+  try {
+    user = await User.create({
+      fullName,
+      email,
+      passwordHash: password,
+      role: 'student',
+      verificationCode: generateVerificationCode(),
+      isEmailVerified: true,
+    });
+  } catch (caught) {
+    // A concurrent request can slip past the findOne check and trip a unique
+    // index. Map the duplicate-key error to a clear, field-aware message.
+    if (caught?.code === 11000) {
+      throw new AppError(409, 'EMAIL_TAKEN', 'An account with this email already exists.');
+    }
+    throw caught;
+  }
+
+  // Verification emails disabled per request
+  // await issueVerification(user);
+
+  return user;
+};
+
+export const login = async ({ email, password }) => {
+  const user = await User.findOne({ email }).select('+passwordHash +tokenVersion');
+  const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
+  if (!user || !passwordOk) {
+    throw new AppError(401, 'INVALID_CREDENTIALS', 'Incorrect email or password.');
+  }
+  user.lastLoginAt = new Date();
+  await user.save();
+  return user;
+};
+
+export const getRefreshedUser = async (payload) => {
+  const user = await User.findById(payload.sub).select('+tokenVersion');
+  if (!user || (user.tokenVersion ?? 0) !== payload.tv) {
+    throw new AppError(401, 'INVALID_REFRESH', 'Your session has expired. Please sign in again.');
+  }
+  return user;
+};
+
+export const logout = async (userId) => {
+  await User.findByIdAndUpdate(userId, { $inc: { tokenVersion: 1 } });
+};
+
+export const verifyEmail = async (rawToken) => {
+  const user = await User.findOne({
+    emailVerifyTokenHash: hashToken(rawToken),
+    emailVerifyExpires: { $gt: new Date() },
+  }).select('+emailVerifyTokenHash +emailVerifyExpires');
+  if (!user) {
+    throw new AppError(400, 'INVALID_OR_EXPIRED_TOKEN', 'This verification link is invalid or has expired.');
+  }
+  user.isEmailVerified = true;
+  user.emailVerifyTokenHash = undefined;
+  user.emailVerifyExpires = undefined;
+  await user.save();
+  return user;
+};
+
+export const resendVerification = async (email) => {
+  const user = await User.findOne({ email });
+  if (user && !user.isEmailVerified) {
+    await issueVerification(user);
+  }
+};
+
+export const forgotPassword = async (email) => {
+  const user = await User.findOne({ email });
+  if (user) {
+    const token = generateToken();
+    user.passwordResetTokenHash = hashToken(token);
+    user.passwordResetExpires = new Date(Date.now() + RESET_TTL_MS);
+    await user.save();
+    // Not awaited: mail latency must not reveal whether the account exists.
+    sendPasswordResetEmail(user, token).catch((e) => logger.error(`Password reset email delivery failed: ${e.message}`));
+  }
+  return user ?? null;
+};
+
+export const resetPassword = async (rawToken, password) => {
+  const user = await User.findOne({
+    passwordResetTokenHash: hashToken(rawToken),
+    passwordResetExpires: { $gt: new Date() },
+  }).select('+passwordResetTokenHash +passwordResetExpires +tokenVersion');
+  if (!user) {
+    throw new AppError(400, 'INVALID_OR_EXPIRED_TOKEN', 'This reset link is invalid or has expired.');
+  }
+  user.passwordHash = password; // pre-save hook hashes it
+  user.passwordResetTokenHash = undefined;
+  user.passwordResetExpires = undefined;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1; // sign out all existing sessions
+  await user.save();
+  return user;
+};
+
+export const updateProfile = async (userId, { fullName, showOnLeaderboard }) => {
+  const updates = {};
+  if (fullName !== undefined) updates.fullName = fullName;
+  if (showOnLeaderboard !== undefined) updates.showOnLeaderboard = showOnLeaderboard;
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    updates,
+    { new: true, runValidators: true }
+  );
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+  }
+  return user;
+};
+
+export const migrateToUniversity = async (userId, { level, department, matricNumber }) => {
+  if (!level || !department) {
+    throw new AppError(400, 'INVALID_INPUT', 'Level and department are required for migration.');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+
+  // Only allow migration for students who haven't migrated yet
+  if (user.hasMigrated) {
+    throw new AppError(400, 'ALREADY_MIGRATED', 'This user has already migrated to university level.');
+  }
+
+  user.level = level;
+  user.department = department;
+  if (matricNumber) user.matricNumber = matricNumber;
+  user.hasMigrated = true;
+
+  await user.save();
+  return user;
+};
+
+export const updateUtmeData = async (userId, data) => {
+  const { jambScore, oLevelPoints, departmentChoice } = data;
+
+  const updates = {};
+  if (jambScore !== undefined) updates['utmeData.jambScore'] = jambScore;
+  if (oLevelPoints !== undefined) updates['utmeData.oLevelPoints'] = oLevelPoints;
+  if (departmentChoice !== undefined) updates['utmeData.departmentChoice'] = departmentChoice;
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
+
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+  return user;
+};
+
+export const changePassword = async (userId, { currentPassword, newPassword }) => {
+  const user = await User.findById(userId).select('+passwordHash +tokenVersion');
+  if (!user) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');
+  }
+
+  const passwordOk = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!passwordOk) {
+    throw new AppError(400, 'INVALID_PASSWORD', 'Incorrect current password.');
+  }
+
+  user.passwordHash = newPassword;
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+  await user.save();
+  return user;
+};

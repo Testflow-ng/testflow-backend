@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/health",
+      "destination": "https://testflow-nacq.onrender.com/health"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://testflow-nacq.onrender.com/api/:path*"
+    }
+  ]
+}

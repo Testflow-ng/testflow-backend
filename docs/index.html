@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>TestFlow API Reference</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      body { margin: 0; background: #f8fafc; }
+      .swagger-ui .topbar { background: linear-gradient(135deg, #0758e5, #63a9ff); }
+      .swagger-ui .topbar-wrapper::before { content: 'TestFlow'; color: white; font: 800 19px Inter, sans-serif; }
+      .swagger-ui .topbar-wrapper img { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin="anonymous"></script>
+    <script src="./openapi.js"></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        spec: window.testflowOpenApi,
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        tryItOutEnabled: true,
+      });
+    </script>
+  </body>
+</html>

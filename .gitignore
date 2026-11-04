@@ -1,0 +1,11 @@
+node_modules
+.env
+.env.local
+*.DS_Store
+serviceAccountKey.json
+*firebase*.json
+*serviceAccount*.json
+
+.env.*
+!.env.example
+GOOGLE_KEYS_FOR_BACKEND_DEV.env
