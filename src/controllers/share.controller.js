@@ -20,7 +20,17 @@ export const resultPage = asyncHandler(async (req, res) => {
   // A revoked link is a dead link. An HTML 404 rather than a JSON envelope: a person tapping a
   // stale link should read a sentence, not an API error.
   if (!share) {
-    return res.status(404).type('html').send(missingPageHtml());
+    return res
+      .status(404)
+      .type('html')
+      .set('Cache-Control', 'no-store')
+      .send(
+        missingPageHtml({
+          title: 'Link not active',
+          message: 'The student may have stopped sharing it. Ask them for a fresh link.',
+          clientUrl: config.CLIENT_URL,
+        }),
+      );
   }
 
   const url = `${requestOrigin(req)}/r/${share.token}`;

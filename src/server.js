@@ -8,6 +8,7 @@ import { attachLiveCbtSocket } from './sockets/liveCbt.socket.js';
 import { startAdsScheduler, startSubscriptionScheduler, startDataRetentionScheduler, stopAdsScheduler } from './jobs/scheduler.js';
 import { seedPlans } from './scripts/seed-plans.js';
 import { Settings } from './models/Settings.js';
+import { Question } from './models/Question.js';
 import { syncStudentPlansCache } from './config/plans.js';
 import { logger } from './utils/logger.js';
 
@@ -15,6 +16,10 @@ const start = async () => {
   await connectDB();
   try {
     await seedPlans();
+    await Question.updateMany(
+      { isActive: true, isShareable: false },
+      { $set: { isShareable: true } }
+    );
     const settings = await Settings.getInstance();
     if (settings?.studentPlans) {
       syncStudentPlansCache(settings.studentPlans);

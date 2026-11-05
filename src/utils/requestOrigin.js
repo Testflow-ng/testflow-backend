@@ -25,7 +25,7 @@ export const requestOrigin = (req) => {
     return `${proto}://${xHost}`.replace(/\/+$/, '');
   }
 
-  if (config.CLIENT_URL) {
+  if (!config.isTest && config.CLIENT_URL) {
     return config.CLIENT_URL.replace(/\/+$/, '');
   }
 

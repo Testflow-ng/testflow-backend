@@ -2,8 +2,22 @@ import { config } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { logger } from '../utils/logger.js';
 import { isAllowedOrigin } from '../utils/origins.js';
+import { missingPageHtml } from '../utils/shareHtml.js';
 
-export const notFound = (req, _res, next) => {
+export const notFound = (req, res, next) => {
+  if (req.accepts('html') && !req.originalUrl.startsWith('/api')) {
+    return res
+      .status(404)
+      .type('html')
+      .set('Cache-Control', 'no-store')
+      .send(
+        missingPageHtml({
+          title: 'Page not found',
+          message: 'The page you are looking for does not exist or has been moved.',
+          clientUrl: config.CLIENT_URL,
+        }),
+      );
+  }
   next(new AppError(404, 'NOT_FOUND', `Route not found: ${req.method} ${req.originalUrl}`));
 };
 

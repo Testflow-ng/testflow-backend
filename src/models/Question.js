@@ -29,7 +29,7 @@ const questionSchema = new mongoose.Schema(
     subtopic: { type: String, trim: true, maxlength: 160 },
     difficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'medium' },
     isActive: { type: Boolean, default: true },
-    isShareable: { type: Boolean, default: false },
+    isShareable: { type: Boolean, default: true },
     shareTitle: { type: String, trim: true, maxlength: 200 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

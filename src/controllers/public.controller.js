@@ -9,7 +9,7 @@ import { PublicResponse } from '../models/PublicResponse.js';
 import { AppError } from '../utils/AppError.js';
 import { config } from '../config/env.js';
 import { requestOrigin } from '../utils/requestOrigin.js';
-import { questionPageHtml } from '../utils/shareHtml.js';
+import { missingPageHtml, questionPageHtml } from '../utils/shareHtml.js';
 import { toPublicQuestionCard } from '../services/questionCard.service.js';
 import { questionCardPng } from '../services/ogImage.service.js';
 
@@ -24,7 +24,7 @@ const QUESTION_ID = /^[0-9a-fA-F]{24}$/;
  */
 const findShareableQuestion = async (id) =>
   QUESTION_ID.test(String(id))
-    ? Question.findOne({ _id: id, isShareable: true, isActive: true })
+    ? Question.findOne({ _id: id, isActive: true, isShareable: { $ne: false } })
         .populate('subject', 'code')
         .lean()
     : null;
@@ -115,6 +115,19 @@ export const generateSharePage = asyncHandler(async (req, res) => {
   const question = await findShareableQuestion(id);
 
   if (!question) {
+    if (req.headers.accept?.includes('text/html')) {
+      return res
+        .status(404)
+        .type('html')
+        .set('Cache-Control', 'no-store')
+        .send(
+          missingPageHtml({
+            title: 'Question not found',
+            message: 'This question does not exist, has been removed, or is not publicly available.',
+            clientUrl: config.CLIENT_URL,
+          }),
+        );
+    }
     throw new AppError(404, 'NOT_FOUND', 'Question not found or is not publicly available.');
   }
 
