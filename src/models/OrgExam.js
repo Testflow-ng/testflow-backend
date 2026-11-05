@@ -46,6 +46,9 @@ const orgExamSchema = new mongoose.Schema(
 
     priceMinor: { type: Number, default: 0, min: 0 },
     currency: { type: String, default: 'NGN', uppercase: true },
+    // How payments behave on retakes: 'per_session' requires a payment for every attempt,
+    // 'once' unlocks all allowed attempts with a single payment.
+    paymentPolicy: { type: String, enum: ['per_session', 'once'], default: 'per_session' },
 
     status: { type: String, enum: ['draft', 'published', 'archived'], default: 'draft' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

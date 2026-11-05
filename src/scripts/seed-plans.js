@@ -50,7 +50,7 @@ export async function seedPlans() {
   for (const p of PLAN_SEED) {
     await PlanDefinition.findOneAndUpdate(
       { key: p.key },
-      { $set: p },
+      { $setOnInsert: p },
       { upsert: true, new: true },
     );
   }

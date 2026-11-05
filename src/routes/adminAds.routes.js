@@ -1,9 +1,23 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
+import { AppError } from '../utils/AppError.js';
 import * as admin from '../controllers/adminAds.controller.js';
 import * as s from '../validators/ads.schema.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const singleUpload = (req, res, next) => {
+  upload.any()(req, res, (err) => {
+    if (err) return next(new AppError(422, 'INVALID_UPLOAD', err.message));
+    if (!req.files || !req.files.length) {
+      return next(new AppError(422, 'VALIDATION_ERROR', 'No image file uploaded.'));
+    }
+    req.file = req.files[0];
+    next();
+  });
+};
 
 const router = Router();
 router.use(authenticate, authorize('admin')); // admin + super_admin
@@ -29,6 +43,7 @@ router.get('/training/export', authorize('super_admin'), validate(s.trainingExpo
 // House Ads
 router.get('/house-ads', admin.listHouseAds);
 router.post('/house-ads', admin.createHouseAd);
+router.post('/house-ads/image', singleUpload, admin.uploadHouseAdImage);
 router.patch('/house-ads/:id', validate(s.idParam), admin.updateHouseAd);
 router.delete('/house-ads/:id', validate(s.idParam), admin.deleteHouseAd);
 

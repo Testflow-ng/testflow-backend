@@ -65,6 +65,26 @@ export const PLACEMENTS = Object.freeze({
     enabled: true,
     contexts: Object.freeze(['exam_session_result', 'post_utme_result']),
   }),
+  dashboard: definePlacement({
+    label: 'Student dashboard',
+    enabled: true,
+    contexts: Object.freeze(['dashboard']),
+  }),
+  in_result: definePlacement({
+    label: 'In-between exam result questions',
+    enabled: true,
+    contexts: Object.freeze(['exam_session_result', 'post_utme_result']),
+  }),
+  library: definePlacement({
+    label: 'Question library',
+    enabled: true,
+    contexts: Object.freeze(['library']),
+  }),
+  tenant_portal: definePlacement({
+    label: 'Testflow for Everyone',
+    enabled: true,
+    contexts: Object.freeze(['tenant_portal', 'tenant_results']),
+  }),
   // --- Sensitive flows. Registered, never eligible. ---
   exam_session: definePlacement({
     label: 'Examination session',

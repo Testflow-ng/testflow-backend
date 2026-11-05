@@ -85,6 +85,16 @@ export async function entitlementsFor(orgId) {
 const requiredPlanFor = (feature) =>
   feature === 'paid_exams' || feature === 'live_cbt' ? 'studio' : 'pro';
 
+const FEATURE_KEY_MAP = Object.freeze({
+  paid_exams: 'paidExams',
+  live_cbt: 'liveCbt',
+  question_banks: 'questionBanks',
+  announcements: 'announcements',
+  reports: 'reports',
+  custom_domain: 'customDomain',
+  community_enabled: 'communityEnabled',
+});
+
 /**
  * Refuse a console action the organisation's plan does not include.
  *
@@ -93,7 +103,8 @@ const requiredPlanFor = (feature) =>
  */
 export async function requireFeature(orgId, feature, message) {
   const ent = await entitlementsFor(orgId);
-  if (ent[feature]) return ent;
+  const key = FEATURE_KEY_MAP[feature] ?? feature;
+  if (ent[key] || ent[feature]) return ent;
   const requiredPlan = requiredPlanFor(feature);
   const error = new AppError(
     402,

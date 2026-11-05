@@ -166,6 +166,18 @@ export const updateProfile = asyncHandler(async (req, res) => {
   res.status(200).json({ user });
 });
 
+export const uploadAvatar = asyncHandler(async (req, res) => {
+  const { uploadAvatar: saveAvatar } = await import('../services/avatar.service.js');
+  const user = await saveAvatar(req.user, req.file);
+  res.status(200).json({ user, avatarUrl: user.avatarUrl });
+});
+
+export const deleteAvatar = asyncHandler(async (req, res) => {
+  const { deleteAvatar: removeAvatar } = await import('../services/avatar.service.js');
+  const user = await removeAvatar(req.user);
+  res.status(200).json({ user, avatarUrl: null });
+});
+
 export const migrateToUniversity = asyncHandler(async (req, res) => {
   const user = await authService.migrateToUniversity(req.user._id, req.body);
   res.status(200).json({ user });

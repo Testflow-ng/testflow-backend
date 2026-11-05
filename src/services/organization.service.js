@@ -44,7 +44,7 @@ export const orgView = (org) => ({
     businessName: org.payout?.businessName ?? null,
     status: org.payout?.status ?? 'none',
     subaccountCode: org.payout?.subaccountCode ?? null,
-    platformPercent: org.payout?.platformPercent ?? 10,
+    platformPercent: org.payout?.platformPercent ?? 5,
   },
   createdAt: org.createdAt ?? null,
   updatedAt: org.updatedAt ?? null,

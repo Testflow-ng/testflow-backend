@@ -14,19 +14,48 @@ import { accountPayload } from './identity.service.js';
 const CODE_TTL_MS = 2 * 60 * 1000;
 const clientsSchema = z.array(z.object({ id: z.string().min(1).max(60), redirectUris: z.array(z.string().url()).min(1) }));
 
+const BUILTIN_CLIENTS = [
+  {
+    id: 'testflow-everyone',
+    redirectUris: [
+      'https://api.testflow.com.ng/api/auth/testflow/callback',
+      'http://localhost:5001/api/auth/testflow/callback',
+      'http://localhost:5000/api/auth/testflow/callback',
+      'http://127.0.0.1:5001/api/auth/testflow/callback',
+      'http://127.0.0.1:5000/api/auth/testflow/callback',
+    ],
+  },
+];
+
 let override = null;
 /** Test hook. */
 export const setClientsForTests = (clients) => { override = clients; };
 
-/** Allow-listed clients from AUTH_CLIENTS (JSON). Invalid config = no clients (fail closed). */
+/** Allow-listed clients from AUTH_CLIENTS (JSON) plus built-in first-party apps. */
 export const getClients = () => {
   if (override) return override;
-  if (!config.AUTH_CLIENTS) return [];
-  try {
-    return clientsSchema.parse(JSON.parse(config.AUTH_CLIENTS));
-  } catch {
-    return [];
+  let parsed = [];
+  if (config.AUTH_CLIENTS) {
+    try {
+      parsed = clientsSchema.parse(JSON.parse(config.AUTH_CLIENTS));
+    } catch {
+      parsed = [];
+    }
   }
+  const clientMap = new Map();
+  for (const c of BUILTIN_CLIENTS) {
+    clientMap.set(c.id, { ...c, redirectUris: [...c.redirectUris] });
+  }
+  for (const c of parsed) {
+    if (clientMap.has(c.id)) {
+      const existing = clientMap.get(c.id);
+      const uris = new Set([...existing.redirectUris, ...c.redirectUris]);
+      clientMap.set(c.id, { ...existing, redirectUris: [...uris] });
+    } else {
+      clientMap.set(c.id, c);
+    }
+  }
+  return [...clientMap.values()];
 };
 
 const sha256 = (v) => crypto.createHash('sha256').update(v).digest('hex');

@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema(
     fullName: { type: String, required: true, trim: true, maxlength: 120 },
     username: { type: String, unique: true, sparse: true, trim: true, lowercase: true, minlength: 3, maxlength: 20 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    avatarUrl: { type: String, trim: true, default: null },
     // Students only; sparse+unique so admins (no matric) don't collide on null.
     matricNumber: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
     passwordHash: { type: String, required: true, select: false },

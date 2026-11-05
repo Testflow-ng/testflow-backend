@@ -73,3 +73,12 @@ export const deleteHouseAd = asyncHandler(async (req, res) => {
   await recordAction({ actorId: req.user._id, action: 'HOUSE_AD_DELETED', targetId: req.params.id, targetType: 'Campaign', req });
   res.json(result);
 });
+
+export const uploadHouseAdImage = asyncHandler(async (req, res) => {
+  if (!req.file) throw new AppError(422, 'VALIDATION_ERROR', 'Attach an image in the file field.');
+  const { uploadAdAsset } = await import('../services/ads/image.service.js');
+  const { getSettings } = await import('../services/ads/settings.service.js');
+  const settings = await getSettings();
+  const asset = await uploadAdAsset(req.user, req.file.buffer, settings);
+  res.status(201).json({ asset: { id: String(asset._id), url: asset.url } });
+});

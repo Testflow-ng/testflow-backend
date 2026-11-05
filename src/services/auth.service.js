@@ -134,10 +134,11 @@ export const resetPassword = async (rawToken, password) => {
   return user;
 };
 
-export const updateProfile = async (userId, { fullName, showOnLeaderboard }) => {
+export const updateProfile = async (userId, { fullName, showOnLeaderboard, avatarUrl }) => {
   const updates = {};
   if (fullName !== undefined) updates.fullName = fullName;
   if (showOnLeaderboard !== undefined) updates.showOnLeaderboard = showOnLeaderboard;
+  if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
 
   const user = await User.findByIdAndUpdate(
     userId,

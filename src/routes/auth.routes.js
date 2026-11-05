@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import multer from 'multer';
+import { AppError } from '../utils/AppError.js';
 import * as auth from '../controllers/auth.controller.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/authenticate.js';
@@ -52,6 +54,16 @@ router.post('/forgot-password', emailLimiter, validate(emailOnlySchema), auth.fo
 router.post('/reset-password', resetPasswordLimiter, validate(resetPasswordSchema), auth.resetPassword);
 
 router.patch('/profile', authenticate, auth.updateProfile);
+const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const singleAvatar = (req, res, next) => {
+  avatarUpload.any()(req, res, (err) => {
+    if (err) return next(new AppError(422, 'INVALID_UPLOAD', err.message));
+    if (req.files && req.files.length) req.file = req.files[0];
+    next();
+  });
+};
+router.post('/profile/avatar', authenticate, singleAvatar, auth.uploadAvatar);
+router.delete('/profile/avatar', authenticate, auth.deleteAvatar);
 router.patch('/migrate', authenticate, auth.migrateToUniversity);
 router.patch('/utme-data', authenticate, auth.updateUtmeData);
 router.post('/change-password', authenticate, auth.changePassword);

@@ -33,6 +33,7 @@ const campaignSchema = new mongoose.Schema(
     status: { type: String, enum: ALL_STATUSES, default: 'draft', required: true },
     paymentStatus: { type: String, enum: ['unpaid', 'pending', 'paid', 'refund_due', 'refunded', 'exempt'], default: 'unpaid' },
     isHouseAd: { type: Boolean, default: false, index: true },
+    placements: { type: [String], default: ['all'] },
 
     durationDays: { type: Number, required: true, min: 1 },
     dailyFeeKobo: { type: Number, default: 0 }, // snapshot at creation/edit

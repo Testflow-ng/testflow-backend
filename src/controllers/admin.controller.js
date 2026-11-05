@@ -4,6 +4,8 @@ import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
 import { ExamSession } from '../models/ExamSession.js';
 import { Settings } from '../models/Settings.js';
+import { PlanDefinition } from '../models/PlanDefinition.js';
+import { syncStudentPlansCache } from '../config/plans.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { PublicResponse } from '../models/PublicResponse.js';
 import * as auditService from '../services/audit.service.js';
@@ -375,13 +377,41 @@ export const verifyPostUtme = asyncHandler(async (req, res) => {
 
 export const getSettings = asyncHandler(async (req, res) => {
   const settings = await Settings.getInstance();
-  res.json({ settings });
+  const orgPlans = await PlanDefinition.find().sort({ sortOrder: 1 }).lean();
+  const sObj = settings.toObject ? settings.toObject() : { ...settings };
+  sObj.orgPlans = orgPlans;
+  res.json({ settings: sObj });
 });
 
 export const updateSettings = asyncHandler(async (req, res) => {
   const settings = await Settings.getInstance();
-  Object.assign(settings, req.body);
+  const { orgPlans, studentPlans, ...rest } = req.body;
+  Object.assign(settings, rest);
+  if (Array.isArray(studentPlans)) {
+    settings.studentPlans = studentPlans;
+    syncStudentPlansCache(studentPlans);
+  }
   await settings.save();
+
+  if (Array.isArray(orgPlans)) {
+    for (const op of orgPlans) {
+      if (op.key && op.priceMinor !== undefined) {
+        await PlanDefinition.findOneAndUpdate(
+          { key: op.key },
+          {
+            $set: {
+              priceMinor: Math.max(0, Math.round(Number(op.priceMinor))),
+              ...(op.available !== undefined ? { available: Boolean(op.available) } : {}),
+            },
+          },
+        );
+      }
+    }
+  }
+
+  const updatedOrgPlans = await PlanDefinition.find().sort({ sortOrder: 1 }).lean();
+  const sObj = settings.toObject ? settings.toObject() : { ...settings };
+  sObj.orgPlans = updatedOrgPlans;
 
   await auditService.recordAction({
     actorId: req.user._id,
@@ -389,10 +419,10 @@ export const updateSettings = asyncHandler(async (req, res) => {
     targetId: settings._id,
     targetType: 'Settings',
     metadata: req.body,
-    req
+    req,
   });
 
-  res.json({ settings });
+  res.json({ settings: sObj });
 });
 
 export const exportResults = asyncHandler(async (req, res) => {

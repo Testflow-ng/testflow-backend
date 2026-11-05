@@ -109,8 +109,17 @@ export const verifyDomain = async (orgId, domainId) => {
   let verified = false;
   try {
     const cnames = await dns.resolveCname(domain.hostname);
-    if (cnames.some((c) => c.toLowerCase().replace(/\.$/, '') === CUSTOM_CNAME_TARGET)) verified = true;
+    const validTargets = [CUSTOM_CNAME_TARGET, 'cname.vercel-dns.com', 'testflow.com.ng'];
+    if (cnames.some((c) => validTargets.includes(c.toLowerCase().replace(/\.$/, '')))) verified = true;
   } catch { /* no CNAME yet */ }
+
+  if (!verified) {
+    try {
+      const aRecords = await dns.resolve4(domain.hostname);
+      const vercelIps = ['76.76.21.21', '216.198.79.1', '64.29.17.65'];
+      if (aRecords.some((ip) => vercelIps.includes(ip))) verified = true;
+    } catch { /* no A records */ }
+  }
 
   if (!verified && domain.verification?.token) {
     try {

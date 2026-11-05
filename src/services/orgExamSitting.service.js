@@ -38,17 +38,39 @@ const requirePlanFeature = async (orgId, feature) => {
 
 const requirePaidAccess = async (org, user, exam) => {
   if (!(exam.priceMinor > 0)) return;
-  const paid = await OrgPayment.exists({
-    organization: org._id,
-    student: user._id,
-    item: 'exam',
-    itemRef: exam._id,
-    status: 'paid',
-  });
-  if (!paid) {
-    const error = new AppError(402, 'PAYMENT_REQUIRED', 'Pay for this exam before you start it.');
-    error.details = { examId: String(exam._id), priceMinor: exam.priceMinor, currency: exam.currency ?? 'NGN' };
-    throw error;
+  const policy = exam.paymentPolicy ?? 'per_session';
+  if (policy === 'per_session') {
+    const paidCount = await OrgPayment.countDocuments({
+      organization: org._id,
+      student: user._id,
+      item: 'exam',
+      itemRef: exam._id,
+      status: 'paid',
+    });
+    const completedAttempts = await OrgAttempt.countDocuments({
+      organization: org._id,
+      exam: exam._id,
+      student: user._id,
+      status: { $in: ['submitted', 'timed_out'] },
+    });
+    if (paidCount <= completedAttempts) {
+      const error = new AppError(402, 'PAYMENT_REQUIRED', completedAttempts > 0 ? 'Pay for this retake session before you start.' : 'Pay for this exam before you start it.');
+      error.details = { examId: String(exam._id), priceMinor: exam.priceMinor, currency: exam.currency ?? 'NGN' };
+      throw error;
+    }
+  } else {
+    const paid = await OrgPayment.exists({
+      organization: org._id,
+      student: user._id,
+      item: 'exam',
+      itemRef: exam._id,
+      status: 'paid',
+    });
+    if (!paid) {
+      const error = new AppError(402, 'PAYMENT_REQUIRED', 'Pay for this exam before you start it.');
+      error.details = { examId: String(exam._id), priceMinor: exam.priceMinor, currency: exam.currency ?? 'NGN' };
+      throw error;
+    }
   }
 };
 

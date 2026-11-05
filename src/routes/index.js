@@ -56,6 +56,7 @@ router.use('/billing', billingRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/admin/ads', adminAdsRoutes); // before '/admin' so it is matched first
 router.use('/admin', adminRoutes);
+router.use('/everybody', everybodyRoutes);
 router.use('/v1/everybody', everybodyRoutes);
 // Same prefix: the subscription routes carry their own `/organizations/:organizationId/...` and
 // `/subscriptions/webhook` paths, so they sit beside `everybodyRoutes` rather than under it.

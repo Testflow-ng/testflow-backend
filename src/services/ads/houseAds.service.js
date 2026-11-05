@@ -80,6 +80,7 @@ export const createHouseAd = async (adminUser, data) => {
       whatsapp: destination.whatsapp || undefined,
     },
     keywords: Array.isArray(data.keywords) ? data.keywords.slice(0, 3) : [],
+    placements: Array.isArray(data.placements) && data.placements.length > 0 ? data.placements : ['all'],
     durationDays,
     dailyFeeKobo: 0,
     priceKobo: 0,
@@ -120,6 +121,7 @@ export const updateHouseAd = async (id, data, adminUser) => {
   if (data.name) campaign.name = data.name.trim();
   if (data.description) campaign.description = data.description.trim();
   if (data.keywords) campaign.keywords = Array.isArray(data.keywords) ? data.keywords.slice(0, 3) : [];
+  if (data.placements) campaign.placements = Array.isArray(data.placements) && data.placements.length > 0 ? data.placements : ['all'];
   if (data.destination) campaign.destination = data.destination;
 
   if (data.imageUrl || data.assetId) {
@@ -166,18 +168,37 @@ export const deleteHouseAd = async (id, adminUser, reason = 'Deleted by admin') 
 
 /**
  * Public or authenticated fetch for an active house ad payload.
+ * Rotates randomly across all currently active house ads matching the requested placement.
  */
-export const getActiveHouseAdPayload = async () => {
+export const getActiveHouseAdPayload = async (placement = null) => {
   const now = new Date();
-  const c = await Campaign.findOne({
+  const filter = {
     isHouseAd: true,
     status: STATUS.ACTIVE,
     startsAt: { $lte: now },
     endsAt: { $gt: now },
     ...notPurged(now),
-  }).populate('image', 'url').lean();
+  };
+
+  if (placement) {
+    filter.$or = [
+      { placements: { $exists: false } },
+      { placements: { $size: 0 } },
+      { placements: 'all' },
+      { placements: placement },
+    ];
+  }
+
+  const count = await Campaign.countDocuments(filter);
+  if (!count) return null;
+
+  const randomSkip = Math.floor(Math.random() * count);
+  const c = await Campaign.findOne(filter).skip(randomSkip).populate('image', 'url').lean();
 
   if (!c) return null;
+
+  // Bump eligible request count asynchronously
+  Campaign.updateOne({ _id: c._id }, { $inc: { 'stats.impressions': 1, 'stats.eligibleRequests': 1 } }).catch(() => {});
 
   return {
     serveId: crypto.randomUUID(),

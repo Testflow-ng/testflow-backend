@@ -218,6 +218,7 @@ const examBody = {
   negativeMarking: z.coerce.number().min(0).max(100).optional(),
   priceMinor: z.coerce.number().int().min(0).optional(),
   currency: z.string().trim().length(3).optional(),
+  paymentPolicy: z.enum(['per_session', 'once']).optional(),
 };
 
 export const orgExamListSchema = z.object({

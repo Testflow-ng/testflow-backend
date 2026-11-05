@@ -3,6 +3,7 @@ import { config } from '../config/env.js';
 import { Organization } from '../models/Organization.js';
 import { OrgExam } from '../models/OrgExam.js';
 import { OrgPayment } from '../models/OrgPayment.js';
+import { OrgAttempt } from '../models/OrgAttempt.js';
 import { AppError } from '../utils/AppError.js';
 import { entitlementsFor } from './entitlements.js';
 import { assertFeature } from './orgContent.service.js';
@@ -132,15 +133,42 @@ export const initializeExamCheckout = async (org, student, examId, { idempotency
     }
   }
 
-  const paid = await OrgPayment.findOne({
-    organization: org._id,
-    student: student._id,
-    item: 'exam',
-    itemRef: exam._id,
-    status: 'paid',
-  }).lean();
-  if (paid) {
-    return { payment: paymentView(paid), alreadyPaid: true, access: true, reference: paid.reference };
+  const policy = exam.paymentPolicy ?? 'per_session';
+  if (policy === 'per_session') {
+    const paidCount = await OrgPayment.countDocuments({
+      organization: org._id,
+      student: student._id,
+      item: 'exam',
+      itemRef: exam._id,
+      status: 'paid',
+    });
+    const completedAttempts = await OrgAttempt.countDocuments({
+      organization: org._id,
+      exam: exam._id,
+      student: student._id,
+      status: { $in: ['submitted', 'timed_out'] },
+    });
+    if (paidCount > completedAttempts) {
+      const latestPaid = await OrgPayment.findOne({
+        organization: org._id,
+        student: student._id,
+        item: 'exam',
+        itemRef: exam._id,
+        status: 'paid',
+      }).sort({ paidAt: -1 }).lean();
+      return { payment: paymentView(latestPaid), alreadyPaid: true, access: true, reference: latestPaid.reference };
+    }
+  } else {
+    const paid = await OrgPayment.findOne({
+      organization: org._id,
+      student: student._id,
+      item: 'exam',
+      itemRef: exam._id,
+      status: 'paid',
+    }).lean();
+    if (paid) {
+      return { payment: paymentView(paid), alreadyPaid: true, access: true, reference: paid.reference };
+    }
   }
 
   const percent = await getPlatformPercent();

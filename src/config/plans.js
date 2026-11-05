@@ -58,11 +58,28 @@ export const STUDENT_PLANS = Object.freeze([
 
 export const STUDENT_PLAN_KEYS = Object.freeze(STUDENT_PLANS.map((p) => p.key));
 
+let dynamicStudentPlans = [...STUDENT_PLANS];
+
+/** Sync in-memory student plans with custom prices/availability saved in database settings. */
+export const syncStudentPlansCache = (overrides) => {
+  if (!Array.isArray(overrides) || overrides.length === 0) return;
+  dynamicStudentPlans = STUDENT_PLANS.map((base) => {
+    const o = overrides.find((x) => x.key === base.key);
+    if (!o) return base;
+    return Object.freeze({
+      ...base,
+      priceMinor: o.priceMinor != null ? o.priceMinor : base.priceMinor,
+      available: o.available != null ? o.available : base.available,
+      comingSoon: o.comingSoon != null ? o.comingSoon : base.comingSoon,
+    });
+  });
+};
+
 /** The catalogue entry for a key, or null. Never trust a client price: callers price from here. */
-export const findStudentPlan = (key) => STUDENT_PLANS.find((p) => p.key === key) ?? null;
+export const findStudentPlan = (key) => dynamicStudentPlans.find((p) => p.key === key) ?? null;
 
 /** The plans that remove advertising. Every current pass does; kept as a filter for clarity. */
-export const adFreePlans = () => STUDENT_PLANS.filter((p) => p.entitlements.ad_free);
+export const adFreePlans = () => dynamicStudentPlans.filter((p) => p.entitlements.ad_free);
 
 /** Wire shape. `entitlements` is what the plan unlocks, not what the user holds. */
 export const toPlanView = (plan) => ({

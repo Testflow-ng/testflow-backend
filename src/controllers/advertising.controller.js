@@ -52,6 +52,6 @@ export const getHouseAd = asyncHandler(async (req, res) => {
   if (req.user?._id && (await hasEntitlement(req.user._id, 'ad_free'))) {
     return res.json({ ad: null, adFree: true });
   }
-  const ad = await getActiveHouseAdPayload();
+  const ad = await getActiveHouseAdPayload(req.query.placement);
   res.json({ ad, adFree: false });
 });

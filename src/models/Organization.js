@@ -18,7 +18,7 @@ const payoutSchema = new mongoose.Schema(
     businessName: { type: String, trim: true },
     status: { type: String, enum: PAYOUT_STATUSES, default: 'none' },
     subaccountCode: { type: String, trim: true },
-    platformPercent: { type: Number, default: 10, min: 0, max: 100 },
+    platformPercent: { type: Number, default: 5, min: 0, max: 100 },
   },
   { _id: false },
 );

@@ -6,10 +6,22 @@ import { config } from './config/env.js';
 import { connectDB, disconnectDB } from './config/db.js';
 import { attachLiveCbtSocket } from './sockets/liveCbt.socket.js';
 import { startAdsScheduler, startSubscriptionScheduler, startDataRetentionScheduler, stopAdsScheduler } from './jobs/scheduler.js';
+import { seedPlans } from './scripts/seed-plans.js';
+import { Settings } from './models/Settings.js';
+import { syncStudentPlansCache } from './config/plans.js';
 import { logger } from './utils/logger.js';
 
 const start = async () => {
   await connectDB();
+  try {
+    await seedPlans();
+    const settings = await Settings.getInstance();
+    if (settings?.studentPlans) {
+      syncStudentPlansCache(settings.studentPlans);
+    }
+  } catch (err) {
+    logger.warn('Failed to seed plans/settings on startup', err);
+  }
 
   // Plain HTTP server (instead of app.listen) so the Live CBT WebSocket
   // gateway can share the same port via upgrade handling.

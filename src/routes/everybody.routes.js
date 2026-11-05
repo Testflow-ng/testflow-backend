@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import * as org from '../controllers/organization.controller.js';
+import { PlanDefinition } from '../models/PlanDefinition.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireOrgRole } from '../middleware/requireOrgRole.js';
@@ -16,6 +18,25 @@ import {
 } from '../validators/everybody.schema.js';
 
 const router = Router();
+
+/** Public plans catalogue for the landing page (no auth required) */
+router.get(
+  '/plans',
+  asyncHandler(async (_req, res) => {
+    const rows = await PlanDefinition.find({ available: true }).sort({ sortOrder: 1 }).lean();
+    res.json({
+      plans: rows.map((r) => ({
+        key: r.key,
+        name: r.name,
+        priceMinor: r.priceMinor,
+        currency: r.currency || 'NGN',
+        interval: r.interval || 'month',
+        available: r.available !== false,
+        adsEnabled: r.entitlements?.adsEnabled ?? (r.key === 'pro'),
+      })),
+    });
+  }),
+);
 
 router.post('/organizations', authenticate, validate(createOrgSchema), org.create);
 router.get('/organizations', authenticate, validate(listOrgsQuerySchema), org.listMine);

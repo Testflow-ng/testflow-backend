@@ -74,18 +74,26 @@ const profileFromCode = async (code) => {
   if (!claims?.email || claims.email_verified !== true || claims.aud !== config.GOOGLE_CLIENT_ID) {
     throw new AppError(401, 'GOOGLE_UNVERIFIED', 'Google could not confirm this email address.');
   }
-  return { email: claims.email.toLowerCase(), fullName: claims.name || claims.email.split('@')[0] };
+  return {
+    email: claims.email.toLowerCase(),
+    fullName: claims.name || claims.email.split('@')[0],
+    avatarUrl: claims.picture || null,
+  };
 };
 
 /** Find the account for a Google profile, or make one. A new account is a student account. */
-export const userFromProfile = async ({ email, fullName }, req) => {
+export const userFromProfile = async ({ email, fullName, avatarUrl }, req) => {
   let user = await User.findOne({ email }).select('+tokenVersion');
   if (!user) {
     user = await User.create({
       fullName, email, passwordHash: crypto.randomBytes(32).toString('hex'), role: 'student', isEmailVerified: true,
+      avatarUrl: avatarUrl || null,
       memberships: [{ product: 'student', role: 'student' }],
     });
     await recordAction({ actorId: user._id, action: 'AUTH_REGISTER', targetId: user._id, targetType: 'User', metadata: { via: 'google' }, req });
+  } else if (!user.avatarUrl && avatarUrl) {
+    user.avatarUrl = avatarUrl;
+    await user.save();
   }
   return user;
 };
@@ -174,12 +182,15 @@ export const completeTestflow = async ({ code, codeVerifier, redirectUri, org },
 };
 
 const siteFromState = async (state) => {
-  let origin = null;
-  try { origin = (JSON.parse(Buffer.from(String(state), 'base64url').toString()) || {}).o; } catch { return null; }
+  let parsed = {};
+  try { parsed = JSON.parse(Buffer.from(String(state), 'base64url').toString()) || {}; } catch { return null; }
+  const origin = parsed.o;
   const trusted = await trustedSiteOrigin(origin);
   if (!trusted) return null;
-  const host = new URL(trusted).hostname;
-  const site = await findSiteByHostname(host);
+  const rawHost = parsed.h || new URL(trusted).hostname;
+  const targetHost = rawHost.includes('.') ? rawHost : `${rawHost}.testflow.com.ng`;
+  const site = await findSiteByHostname(targetHost);
+  const host = site?.host || rawHost;
   return { host, name: site?.config?.published?.brand?.name || site?.org?.name || host };
 };
 
