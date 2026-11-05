@@ -1,10 +1,34 @@
+import { config } from '../config/env.js';
+
 /**
- * The absolute origin the caller reached us on.
+ * The public origin the caller reached us on.
  *
- * A share link has to be absolute and has to point back at the host the student is using, so it
- * is derived from the request rather than from configuration: one deployment serves the app and
- * the API on the same host, and a hardcoded origin would be wrong the moment it does not.
- * `app.set('trust proxy', 1)` is what makes `req.protocol` honour `X-Forwarded-Proto` behind the
- * load balancer, so a proxied request still mints an https link.
+ * For share links and user-facing URLs, returns the frontend/client origin rather than
+ * internal backend domains (like onrender.com or api.testflow.com.ng).
  */
-export const requestOrigin = (req) => `${req.protocol}://${req.get('host')}`;
+export const requestOrigin = (req) => {
+  const candidate = req?.body?.origin || req?.get?.('origin') || req?.get?.('referer');
+  if (candidate) {
+    try {
+      const u = new URL(candidate);
+      if (u.protocol === 'https:' || (['localhost', '127.0.0.1'].includes(u.hostname) && !config.isProduction)) {
+        return u.origin.replace(/\/+$/, '');
+      }
+    } catch {
+      // not a valid URL
+    }
+  }
+
+  const xHost = req?.get?.('x-forwarded-host');
+  if (xHost && !xHost.includes('onrender.com') && !xHost.startsWith('api.')) {
+    const proto = req?.get?.('x-forwarded-proto') || req.protocol || 'https';
+    return `${proto}://${xHost}`.replace(/\/+$/, '');
+  }
+
+  if (config.CLIENT_URL) {
+    return config.CLIENT_URL.replace(/\/+$/, '');
+  }
+
+  return `${req.protocol}://${req.get('host')}`.replace(/\/+$/, '');
+};
+
