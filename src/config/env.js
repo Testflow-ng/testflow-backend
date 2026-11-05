@@ -8,7 +8,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().default(5000)),
-  CLIENT_URL: z.string().url().default('http://localhost:5173'),
+  CLIENT_URL: z.preprocess((val) => (typeof val === 'string' ? val.replace(/\/+$/, '') : val), z.string().url().default('http://localhost:5173')),
   MONGODB_URI: z.string().min(1).default('mongodb://127.0.0.1:27017/testflow'),
 
   JWT_ACCESS_SECRET: z.string().min(32).optional(),
