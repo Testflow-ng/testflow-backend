@@ -36,6 +36,7 @@ router.get('/entitlement', authenticate, ctrl.getEntitlement);
 router.get('/ad-free/purchases', authenticate, ctrl.myPurchases);
 router.post('/ad-free/checkout', authenticate, checkoutLimiter, validate(checkoutSchema), ctrl.checkout);
 router.get('/ad-free/status', authenticate, validate(statusQuerySchema), ctrl.status);
+router.get('/ad-free/checkout-status', authenticate, validate(statusQuerySchema), ctrl.checkoutStatus);
 router.post('/ad-free/cancel', authenticate, validate(cancelSchema), ctrl.cancel);
 
 // Administrative.

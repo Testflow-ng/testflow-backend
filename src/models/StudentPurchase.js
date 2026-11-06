@@ -1,6 +1,22 @@
 import mongoose from 'mongoose';
 
 export const PURCHASE_STATUSES = Object.freeze(['initialized', 'paid', 'failed', 'abandoned', 'refunded']);
+export const PURCHASE_PAYMENT_METHODS = Object.freeze(['paystack_checkout', 'paystack_bank_transfer']);
+
+const transferInstructionsSchema = new mongoose.Schema(
+  {
+    bankName: { type: String },
+    accountName: { type: String },
+    accountNumber: { type: String },
+    amountKobo: { type: Number },
+    currency: { type: String, uppercase: true },
+    expiresAt: { type: Date },
+    displayText: { type: String },
+    transferReference: { type: String },
+    channel: { type: String },
+  },
+  { _id: false },
+);
 
 /**
  * A one-time purchase of a student plan (see `config/plans.js`). This is the auditable transaction
@@ -27,7 +43,12 @@ const studentPurchaseSchema = new mongoose.Schema(
     currency: { type: String, required: true, default: 'NGN', uppercase: true },
     status: { type: String, enum: PURCHASE_STATUSES, default: 'initialized' },
     provider: { type: String, enum: ['paystack', 'none'], default: 'none' },
+    paymentMethod: { type: String, enum: PURCHASE_PAYMENT_METHODS, default: 'paystack_checkout' },
     authorizationUrl: { type: String },
+    // Native bank transfer (Paystack "Pay with Transfer") instructions returned by provider.
+    // Persisted so refresh/status recovery does not create duplicate pending transactions.
+    transferInstructions: { type: transferInstructionsSchema },
+    providerChannel: { type: String },
     providerTransactionId: { type: String },
     idempotencyKey: { type: String, unique: true, sparse: true },
     paidAt: { type: Date },

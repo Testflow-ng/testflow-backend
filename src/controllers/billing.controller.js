@@ -24,7 +24,8 @@ export const checkout = asyncHandler(async (req, res) => {
   const { purchase, replay } = await purchases.startCheckout({
     user: req.user,
     planKey: req.body.planKey,
-    idempotencyKey: req.body.idempotencyKey ?? null,
+    idempotencyKey: req.body.idempotencyKey ?? req.get('idempotency-key') ?? null,
+    paymentMethod: req.body.paymentMethod,
   });
   res.status(replay ? 200 : 201).json({ purchase: purchases.toPurchaseView(purchase) });
 });
@@ -34,11 +35,18 @@ export const checkout = asyncHandler(async (req, res) => {
  * The entitlement, always; a specific purchase (re-verified with the provider) when asked for one.
  */
 export const status = asyncHandler(async (req, res) => {
+  const refresh = req.query.refresh === undefined ? true : !['false', '0', 'no'].includes(String(req.query.refresh).toLowerCase());
   const { entitlements, purchase } = await purchases.getStatus({
     user: req.user,
     reference: req.query.reference ?? null,
+    refresh,
   });
   res.json({ entitlement: entitlements, purchase: purchase ? purchases.toPurchaseView(purchase) : null });
+});
+
+export const checkoutStatus = asyncHandler(async (req, res) => {
+  const purchase = await purchases.getPurchaseByReference({ user: req.user, reference: req.query.reference });
+  res.json({ purchase: purchases.toPurchaseView(purchase) });
 });
 
 /** GET /api/billing/ad-free/purchases — authenticated. Student's payment history and invoices. */
