@@ -1068,19 +1068,29 @@ export const listFlags = async (orgId) => {
   };
 };
 
-export const updateFlag = async (orgId, flagId, body, actorId) => {
+export const updateFlag = async (orgId, flagId, body, actorId, { all = false } = {}) => {
   assertFeature(await entitlementsFor(orgId), 'reports');
   const flag = await OrgQuestionFlag.findOne({ _id: flagId, organization: orgId });
   if (!flag) throw new AppError(404, 'FLAG_NOT_FOUND', 'That report does not exist.');
-  flag.status = body.status;
-  if (body.resolution !== undefined) flag.resolution = body.resolution;
-  if (body.status === 'open') {
-    flag.resolvedBy = null;
-    flag.resolvedAt = null;
-  } else {
-    flag.resolvedBy = actorId ?? null;
-    flag.resolvedAt = new Date();
+
+  const nextStatus = body.status;
+  const resolution = body.resolution !== undefined ? String(body.resolution).trim() : flag.resolution ?? '';
+  if ((nextStatus === 'resolved' || nextStatus === 'dismissed') && resolution.length < 3) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'Add a short resolution note (at least 3 characters) when closing a report.');
   }
+
+  const patch = {
+    status: nextStatus,
+    resolution,
+    ...(nextStatus === 'open'
+      ? { resolvedBy: null, resolvedAt: null }
+      : { resolvedBy: actorId ?? null, resolvedAt: new Date() }),
+  };
+
+  if (all && flag.question) {
+    await OrgQuestionFlag.updateMany({ organization: orgId, question: flag.question, status: 'open' }, { $set: patch });
+  }
+  Object.assign(flag, patch);
   await flag.save();
   await flag.populate([
     { path: 'question' },

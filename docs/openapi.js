@@ -436,11 +436,13 @@ Object.assign(window.testflowOpenApi.paths, {
   },
   [`${api}/v1/everybody/subscriptions/webhook`]: {
     post: {
-      summary: 'Provider payment webhook (not implemented yet)',
-      description: 'Called by the payment provider, never by a client. The route exists but always answers `501 NOT_IMPLEMENTED`: no org subscription is activated by a webhook today, so activation runs through `/v1/everybody/organizations/{organizationId}/subscriptions/{id}/verify` after the provider redirect.',
+      summary: 'Provider payment webhook (Paystack)',
+      description: 'Server-to-server only. Verifies `x-paystack-signature` (HMAC-SHA512 over the raw request body), re-checks amount/currency/reference against the stored `SubscriptionPayment`, and activates the subscription idempotently. Duplicate deliveries and re-verification are safe no-ops. Unknown references are ignored.',
       security: false,
+      parameters: [{ name: 'x-paystack-signature', in: 'header', required: true, schema: { type: 'string' } }],
       responses: {
-        '501': { description: 'NOT_IMPLEMENTED', content: { 'application/json': { schema: ref('Error') } } },
+        '200': { description: 'Handled or ignored', content: { 'application/json': { schema: { type: 'object', properties: { handled: { type: 'boolean' }, ignored: { type: 'boolean' }, duplicate: { type: 'boolean' }, status: { type: 'string' } } } } } },
+        '401': { description: 'INVALID_SIGNATURE', content: { 'application/json': { schema: ref('Error') } } },
       },
     },
   },
@@ -486,6 +488,12 @@ Object.assign(window.testflowOpenApi.paths, {
   },
   [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/results`]: {
     get: operation('Read the results of an exam', { parameters: [orgId, examId, page, limit], response: ref('OrgExamResultsResponse'), description: 'Every submitted attempt, newest first, with `summary: { attempts, average, highest, lowest }`. Always real scores, whatever `showCorrections` says.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/results.csv`]: {
+    get: operation('Download exam results as CSV', { parameters: [orgId, examId], response: { type: 'string', format: 'binary' }, description: 'Owner, admin or examiner. Streams results; formula-like cells are neutralised.' }),
+  },
+  [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/live`]: {
+    get: operation('Get live exam counts (polling)', { parameters: [orgId, examId], response: { type: 'object', properties: { examId: ref('ObjectId'), title: str(), mode: str(), status: str(), startsAt: str({ format: 'date-time', nullable: true }), durationMinutes: int(), counts: { type: 'object', properties: { joined: int(), started: int(), submitted: int(), timedOut: int(), inProgress: int() } } } }, description: 'Organiser view: counts derived from `OrgAttempt` records for this org exam. Use for polling dashboards; SSE may come later.' }),
   },
   [`${api}/v1/everybody/organizations/{organizationId}/exams/{examId}/publish`]: {
     post: operation('Publish an exam', { parameters: [orgId, examId], response: ref('OrgExamResponse'), errors: true, description: '`422 PAYOUT_REQUIRED` when it is paid and no payout account is live.' }),
@@ -605,7 +613,7 @@ Object.assign(window.testflowOpenApi.paths, {
     patch: operation('Reinstate an organization', { admin: true, parameters: [orgId], body: ref('OrgReasonInput'), response: ref('AdminOrgResponse'), errors: true, description: 'Super admin only. Sets the status back to `active` and records the reason.' }),
   },
   [`${api}/v1/admin/everybody/{organizationId}/plan`]: {
-    patch: operation('Queue a plan price or availability edit', { admin: true, parameters: [orgId], body: ref('OrgPlanInput'), response: ref('AdminOrgPlanResponse'), errors: true, description: 'Super admin only. The edit waits on the organization as `planEditPending`; it does not change the plan definition immediately.' }),
+    patch: operation('Update a plan definition (price/availability)', { admin: true, parameters: [orgId], body: ref('OrgPlanInput'), response: ref('AdminOrgPlanResponse'), errors: true, description: 'Super admin only. Updates the `PlanDefinition` (price/availability). Takes effect for new checkouts/renewals; active subscription periods keep their stored snapshot. Audited.' }),
   },
 });
 
@@ -1003,7 +1011,7 @@ Object.assign(window.testflowOpenApi.components.schemas, {
   AdminOrg: { type: 'object', description: 'A lean organization row in the super-admin console.', properties: { _id: ref('ObjectId'), name: str(), slug: str(), status: ref('OrgStatus'), contactEmail: str({ nullable: true }), timezone: str({ nullable: true }), createdAt: str({ format: 'date-time' }) } },
   AdminOrgList: { type: 'object', properties: { orgs: { type: 'array', items: ref('AdminOrg') }, page: int(), limit: int(), total: int() } },
   AdminOrgResponse: { type: 'object', properties: { org: ref('AdminOrg') } },
-  AdminOrgPlanResponse: { type: 'object', description: 'The edit is queued on the organization as `planEditPending`; it is not applied to the plan definition immediately.', properties: { org: ref('AdminOrg'), planDef: ref('PlanDefinition') } },
+  AdminOrgPlanResponse: { type: 'object', description: 'The updated plan definition (active periods keep their snapshot).', properties: { org: ref('AdminOrg'), planDef: ref('PlanDefinition') } },
 });
 
 // ---------------------------------------------------------------------------

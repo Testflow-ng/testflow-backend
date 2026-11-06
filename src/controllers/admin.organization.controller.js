@@ -59,16 +59,19 @@ export const editPlan = asyncHandler(async (req, res) => {
   const { key, priceMinor, available } = req.body;
   const org = await Organization.findById(organizationId).lean();
   if (!org) throw new AppError(404, 'NOT_FOUND', 'Organization not found.');
-  const planDef = await PlanDefinition.findOne({ key }).lean();
+  const planDef = await PlanDefinition.findOne({ key });
   if (!planDef) throw new AppError(400, 'PLAN_UNAVAILABLE', `Plan "${key}" is not defined.`);
-  await Organization.findOneAndUpdate(
-    { _id: organizationId },
-    { $set: { 'planEditPending': { key, priceMinor, available, updatedAt: Date.now() } } },
-    { new: true, runValidators: true },
-  );
+  const patch = {};
+  if (priceMinor !== undefined) patch.priceMinor = priceMinor;
+  if (available !== undefined) patch.available = available;
+  patch.updatedBy = req.user._id;
+  if (Object.keys(patch).length) {
+    await PlanDefinition.updateOne({ _id: planDef._id }, { $set: patch });
+  }
+  const updated = await PlanDefinition.findById(planDef._id).lean();
   await recordAction({
     actorId: req.user._id, action: 'PLAN_EDIT', targetId: org._id, targetType: 'Organization',
-    metadata: { planKey: key, priceMinor }, req,
+    metadata: { planKey: key, ...patch }, req,
   });
-  res.json({ org, planDef });
+  res.json({ org, planDef: updated });
 });

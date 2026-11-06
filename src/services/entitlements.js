@@ -45,25 +45,33 @@ export async function ensureFreeSubscription(orgId) {
  * Return the entitlements that an org currently has, based on its active subscription and the
  * plan definition stored in PlanDefinition. The config defaults fill in any field a plan row
  * predates, so an older database still gets an answer for the newer features.
+ *
+ * `past_due` (grace period) keeps the paid plan's entitlements. `expired`/terminal states fall
+ * back to Free entitlements for feature gating while the workspace remains readable.
  */
 export async function entitlementsFor(orgId) {
-  const active = await Subscription.findOne({ organization: orgId, status: 'active' })
-    .sort({ createdAt: -1 })
-    .lean();
-  const sub = active ?? (await ensureFreeSubscription(orgId));
+  const now = new Date();
+  const sub =
+    (await Subscription.findOne({ organization: orgId, status: 'active' }).sort({ createdAt: -1 }).lean()) ??
+    (await Subscription.findOne({ organization: orgId, status: 'past_due', graceEndsAt: { $gt: now } })
+      .sort({ createdAt: -1 })
+      .lean()) ??
+    (await ensureFreeSubscription(orgId));
   const planKey = PLAN_KEYS.includes(sub.planKey) ? sub.planKey : 'free';
-  const planDef = await PlanDefinition.findOne({ key: planKey }).lean();
+  const effectivePlanKey = sub.status === 'expired' || sub.status === 'cancelled' ? 'free' : planKey;
+  const planDef = await PlanDefinition.findOne({ key: effectivePlanKey }).lean();
 
   // Defaults, then what was purchased, then the live plan row: a corrected plan definition wins
   // over a stale snapshot, while a deleted plan row still leaves the snapshot usable.
   const merged = {
-    ...planEntitlements(planKey),
-    ...(sub.planSnapshot?.entitlements ?? {}),
+    ...planEntitlements(effectivePlanKey),
+    ...(effectivePlanKey === planKey ? sub.planSnapshot?.entitlements ?? {} : {}),
     ...(planDef?.entitlements ?? {}),
   };
 
   return {
-    planKey,
+    planKey: effectivePlanKey,
+    subscriptionStatus: sub.status ?? 'active',
     adsEnabled: Boolean(merged.adsEnabled),
     maxExams: merged.maxExams ?? null,
     questionBanks: Boolean(merged.questionBanks),
@@ -113,6 +121,38 @@ export async function requireFeature(orgId, feature, message) {
   );
   error.details = { feature, requiredPlan };
   throw error;
+}
+
+/**
+ * True when the org can perform subscription-gated mutations (create/publish/sell/start new attempts).
+ * Active or `past_due` within grace is writable; expired/cancelled/none falls to read-only for paid features.
+ */
+export async function subscriptionWritable(orgId) {
+  const sub = await Subscription.findOne({
+    organization: orgId,
+    status: { $in: ['active', 'past_due'] },
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+  if (!sub) return false;
+  if (sub.status === 'active') return true;
+  if (sub.status === 'past_due') return sub.graceEndsAt && new Date(sub.graceEndsAt).getTime() > Date.now();
+  return false;
+}
+
+export async function requireWritableSubscription(orgId) {
+  if (await subscriptionWritable(orgId)) return;
+  // Free/default workspaces with no paid lifecycle still operate under Free plan rules; block only
+  // expired paid states from mutations that could create new chargeable/work obligations.
+  const latest = await Subscription.findOne({ organization: orgId, planKey: { $ne: 'free' } })
+    .sort({ createdAt: -1 })
+    .lean();
+  if (!latest) return; // never had paid subscription
+  if (latest.status === 'expired' || (latest.status === 'past_due' && !(latest.graceEndsAt && new Date(latest.graceEndsAt).getTime() > Date.now()))) {
+    const err = new AppError(402, 'SUBSCRIPTION_EXPIRED', 'Your subscription has expired. Renew to continue making changes; you can still view and export your data.');
+    err.details = { subscriptionStatus: latest.status };
+    throw err;
+  }
 }
 
 export default entitlementsFor;
