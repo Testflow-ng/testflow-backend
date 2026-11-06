@@ -15,6 +15,15 @@ const transporter = isSmtpConfigured
     })
   : null;
 
+let testDelivery = null; // { sent: [], disabled: boolean }
+/** Test hook: capture outbound emails and prevent external delivery. Pass null to restore. */
+export const setEmailDeliveryForTests = (state) => {
+  testDelivery = state;
+};
+export const getTestEmailDeliveries = () => testDelivery?.sent ?? [];
+
+const shouldSkipExternalDelivery = () => config.isTest || Boolean(testDelivery?.disabled ?? testDelivery);
+
 const escapeHtml = (value = '') =>
   String(value).replace(
     /[&<>"']/g,
@@ -187,12 +196,27 @@ const fromLine = (fromName) => {
 
 const send = async ({ to, subject, html, text, fromName, replyTo }) => {
   const from = fromLine(fromName);
+  const payload = {
+    from,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    text,
+    ...(replyTo ? { replyTo } : {}),
+  };
+
+  // Automated tests must never make external email requests. Capture payload metadata only
+  // (no secrets) so tests can assert intent without contacting Resend/SMTP.
+  if (shouldSkipExternalDelivery()) {
+    if (testDelivery?.sent) testDelivery.sent.push(payload);
+    logger.info(`[email] [TEST] skipped external delivery "${subject}" -> ${Array.isArray(to) ? to.join(',') : to}`);
+    return { id: 'test-email-suppressed' };
+  }
 
   if (resendClient) {
     try {
       const { data, error } = await resendClient.emails.send({
         from,
-        to: Array.isArray(to) ? to : [to],
+        to: payload.to,
         subject,
         html,
         text,
