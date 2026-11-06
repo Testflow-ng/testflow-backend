@@ -26,6 +26,7 @@ export const checkoutSchema = z.object({
     .object({
       planKey,
       idempotencyKey: z.string().trim().min(8).max(120).optional(),
+      paymentMethod: z.enum(['paystack_bank_transfer', 'paystack_checkout']).optional(),
     })
     .strict(),
 });
@@ -34,6 +35,9 @@ export const statusQuerySchema = z.object({
   query: z
     .object({
       reference: z.string().trim().min(6).max(120).optional(),
+      refresh: z
+        .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+        .optional(),
     })
     .strict(),
 });

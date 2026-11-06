@@ -1,6 +1,22 @@
 import mongoose from 'mongoose';
 
 export const SUB_PAYMENT_STATUSES = Object.freeze(['initialized', 'paid', 'failed', 'abandoned', 'refunded']);
+export const SUB_PAYMENT_METHODS = Object.freeze(['paystack_checkout', 'paystack_bank_transfer']);
+
+const transferInstructionsSchema = new mongoose.Schema(
+  {
+    bankName: { type: String },
+    accountName: { type: String },
+    accountNumber: { type: String },
+    amountKobo: { type: Number },
+    currency: { type: String, uppercase: true },
+    expiresAt: { type: Date },
+    displayText: { type: String },
+    transferReference: { type: String },
+    channel: { type: String },
+  },
+  { _id: false },
+);
 
 const subscriptionPaymentSchema = new mongoose.Schema(
   {
@@ -13,7 +29,13 @@ const subscriptionPaymentSchema = new mongoose.Schema(
     currency: { type: String, required: true, default: 'NGN', uppercase: true },
     status: { type: String, enum: SUB_PAYMENT_STATUSES, default: 'initialized' },
     provider: { type: String, enum: ['paystack', 'none'] },
+    paymentMethod: { type: String, enum: SUB_PAYMENT_METHODS, default: 'paystack_checkout' },
     authorizationUrl: { type: String },
+    // Native bank transfer (Paystack "Pay with Transfer") instructions returned by provider.
+    // Persisted so refresh/status recovery does not create duplicate pending transactions.
+    transferInstructions: { type: transferInstructionsSchema },
+    providerTransactionId: { type: String },
+    providerChannel: { type: String },
     idempotencyKey: { type: String },
     paidAt: { type: Date },
     verifiedAt: { type: Date },

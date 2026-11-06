@@ -425,6 +425,7 @@ export const orgFlagListSchema = z.object({ params: z.object({ organizationId: o
 
 export const orgFlagUpdateSchema = z.object({
   params: z.object({ organizationId: objectId, flagId: objectId }).strict(),
+  query: z.object({ all: z.coerce.boolean().optional() }).optional(),
   body: z.object({
     status: z.enum(['open', 'resolved', 'dismissed']),
     resolution: z.string().trim().max(500).optional(),

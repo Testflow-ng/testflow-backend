@@ -103,6 +103,7 @@ router.get('/organizations/:organizationId/exams/:examId/questions', authenticat
 router.put('/organizations/:organizationId/exams/:examId/questions', authenticate, validate(orgExamQuestionsSchema), staff, org.setExamQuestions);
 router.get('/organizations/:organizationId/exams/:examId/results', authenticate, validate(orgExamResultsSchema), staff, org.getExamResults);
 router.get('/organizations/:organizationId/exams/:examId/results.csv', authenticate, validate(orgExamParamSchema), staff, org.downloadExamResults);
+router.get('/organizations/:organizationId/exams/:examId/live', authenticate, validate(orgExamParamSchema), staff, org.getExamLive);
 router.get('/organizations/:organizationId/attempts/:attemptId', authenticate, validate(orgAttemptParamSchema), staff, org.getAttempt);
 router.post('/organizations/:organizationId/exams/:examId/publish', authenticate, validate(orgExamParamSchema), staff, org.publishExam);
 router.post('/organizations/:organizationId/exams/:examId/unpublish', authenticate, validate(orgExamParamSchema), staff, org.unpublishExam);

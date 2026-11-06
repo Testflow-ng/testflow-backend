@@ -4,7 +4,7 @@ import { OrgPayment } from '../models/OrgPayment.js';
 import { OrgQuestion } from '../models/OrgQuestion.js';
 import { AppError } from '../utils/AppError.js';
 import { shuffle } from '../utils/shuffle.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { assertFeature } from './orgContent.service.js';
 
 /**
@@ -290,6 +290,7 @@ const examsByIds = async (orgId, attempts) => {
 };
 
 export const startAttempt = async (org, user, examId, { accessCode } = {}) => {
+  await requireWritableSubscription(org._id);
   const exam = await OrgExam.findOne({ _id: examId, organization: org._id, status: 'published' }).lean();
   if (!exam) throw new AppError(404, 'EXAM_NOT_FOUND', 'That exam does not exist.');
 
@@ -423,4 +424,25 @@ export const getMyResult = async (orgId, userId, attemptId) => {
   }
   const exam = await OrgExam.findOne({ _id: attempt.exam, organization: orgId }).lean();
   return toStudentResult(attempt, exam);
+};
+
+/** Live counts for the organiser console (polling). */
+export const getExamLiveCounts = async (orgId, examId) => {
+  const exam = await OrgExam.findOne({ _id: examId, organization: orgId }).select('mode status startsAt durationMinutes title').lean();
+  if (!exam) throw new AppError(404, 'EXAM_NOT_FOUND', 'That exam does not exist.');
+  const [joined, started, submitted, timedOut] = await Promise.all([
+    OrgAttempt.countDocuments({ organization: orgId, exam: examId }),
+    OrgAttempt.countDocuments({ organization: orgId, exam: examId, status: { $ne: 'in_progress' } }),
+    OrgAttempt.countDocuments({ organization: orgId, exam: examId, status: 'submitted' }),
+    OrgAttempt.countDocuments({ organization: orgId, exam: examId, status: 'timed_out' }),
+  ]);
+  return {
+    examId: String(exam._id),
+    title: exam.title,
+    mode: exam.mode,
+    status: exam.status,
+    startsAt: exam.startsAt,
+    durationMinutes: exam.durationMinutes,
+    counts: { joined, started, submitted, timedOut, inProgress: Math.max(0, joined - started) },
+  };
 };

@@ -15,6 +15,8 @@ import {
   orgPaystackConfigured,
   initializeOrgTransaction,
   verifyOrgTransaction,
+  fetchOrgTransaction,
+  normalizePaystackTransferInstructions,
 } from './orgPaystack.service.js';
 
 /**
@@ -37,17 +39,42 @@ const requireProvider = () => {
   }
 };
 
-export const paymentView = (payment) => ({
-  id: String(payment._id),
-  reference: payment.reference,
-  kind: payment.kind,
-  planKey: payment.planKey,
-  amountKobo: payment.amountKobo,
-  currency: payment.currency,
-  status: payment.status,
-  authorizationUrl: payment.authorizationUrl ?? null,
-  paidAt: payment.paidAt ?? null,
-});
+const transferView = (instructions) => {
+  if (!instructions) return null;
+  const src = typeof instructions.toObject === 'function' ? instructions.toObject() : instructions;
+  const view = {
+    bankName: src.bankName ?? null,
+    accountName: src.accountName ?? null,
+    accountNumber: src.accountNumber ?? null,
+    amountKobo: src.amountKobo ?? null,
+    currency: src.currency ?? null,
+    expiresAt: src.expiresAt ?? null,
+    displayText: src.displayText ?? null,
+    transferReference: src.transferReference ?? null,
+    channel: src.channel ?? null,
+  };
+  return Object.values(view).some((v) => v != null) ? view : null;
+};
+
+export const paymentView = (payment) => {
+  const method = payment.paymentMethod ?? (payment.transferInstructions ? 'paystack_bank_transfer' : 'paystack_checkout');
+  return {
+    id: String(payment._id),
+    reference: payment.reference,
+    kind: payment.kind,
+    planKey: payment.planKey,
+    amountKobo: payment.amountKobo,
+    currency: payment.currency,
+    status: payment.status,
+    paymentMethod: method,
+    provider: payment.provider ?? null,
+    authorizationUrl: payment.authorizationUrl ?? null,
+    transferInstructions: transferView(payment.transferInstructions),
+    providerChannel: payment.providerChannel ?? null,
+    paidAt: payment.paidAt ?? null,
+    verifiedAt: payment.verifiedAt ?? null,
+  };
+};
 
 const planOrThrow = async (planKey) => {
   const plan = await PlanDefinition.findOne({ key: planKey, available: { $ne: false } }).lean();
@@ -70,23 +97,44 @@ const checkoutShape = (payment) => ({
   reference: payment.reference,
   amountKobo: payment.amountKobo,
   currency: payment.currency,
-  authorizationUrl: payment.authorizationUrl,
+  authorizationUrl: payment.authorizationUrl ?? null,
+  paymentMethod: payment.paymentMethod ?? 'paystack_checkout',
+  transferInstructions: transferView(payment.transferInstructions),
+  payment: paymentView(payment),
 });
 
-/** Create a provider checkout for `sub`. Reusing the idempotency key returns the first payment. */
-const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempotencyKey }) => {
+const applyProviderInit = (payment, initialized) => {
+  if (!initialized) return;
+  if (initialized.authorizationUrl != null) payment.authorizationUrl = initialized.authorizationUrl;
+  if (initialized.transferInstructions) payment.transferInstructions = initialized.transferInstructions;
+  if (initialized.channel) payment.providerChannel = initialized.channel;
+  if (initialized.transactionId) payment.providerTransactionId = initialized.transactionId;
+  if (initialized.reference && !payment.reference) payment.reference = initialized.reference;
+};
+
+/**
+ * Create a provider checkout for `sub`. Reusing the idempotency key returns the first payment.
+ * For an existing initialized payment, this never creates a duplicate provider transaction: it
+ * returns the stored pending payment (and may refresh missing transfer instructions) so refreshes
+ * and retries are safe.
+ */
+const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempotencyKey, paymentMethod = 'paystack_bank_transfer' }) => {
   const plan = await planOrThrow(planKey);
   if (idempotencyKey) {
-    const existing = await SubscriptionPayment.findOne({ organization: org._id, idempotencyKey }).lean();
+    const existing = await SubscriptionPayment.findOne({ organization: org._id, idempotencyKey });
     if (existing) {
       if (String(existing.subscription) !== String(sub._id)) {
         throw new AppError(409, 'IDEMPOTENCY_CONFLICT', 'That payment reference belongs to another subscription.');
       }
-      return { ...checkoutShape(existing), reused: true };
+      // Idempotent recovery: pending/paid/failed outcomes are returned, never re-initialized.
+      return { ...checkoutShape(existing), reused: true, status: existing.status };
     }
   }
   requireProvider();
 
+  // Native bank transfer is the default for subscription payments. Keep checkout redirect support
+  // only as an explicit compatibility path; student paid-exam flows still use checkout redirect.
+  const useBankTransfer = paymentMethod === 'paystack_bank_transfer';
   const payment = await SubscriptionPayment.create({
     reference: referenceFor(),
     organization: org._id,
@@ -97,6 +145,7 @@ const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempo
     currency: plan.currency ?? 'NGN',
     status: 'initialized',
     provider: 'paystack',
+    paymentMethod: useBankTransfer ? 'paystack_bank_transfer' : 'paystack_checkout',
     // Omit the key entirely when absent: a unique+sparse index still indexes an explicit null, so
     // two keyless checkouts would collide.
     ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -111,8 +160,10 @@ const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempo
       amountKobo: payment.amountKobo,
       currency: payment.currency,
       callbackUrl,
+      ...(useBankTransfer ? { channels: ['bank_transfer'] } : {}),
       metadata: {
         kind: 'subscription',
+        paymentMethod: payment.paymentMethod,
         organizationId: String(org._id),
         subscriptionId: String(sub._id),
         planKey,
@@ -122,12 +173,18 @@ const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempo
     await SubscriptionPayment.updateOne({ _id: payment._id }, { $set: { status: 'failed' } });
     throw error;
   }
-  payment.authorizationUrl = initialized.authorizationUrl;
+  applyProviderInit(payment, initialized);
   await payment.save();
-  return { ...checkoutShape(payment), reused: false };
+  return { ...checkoutShape(payment), reused: false, status: payment.status };
 };
 
-export const upgradeSubscription = async ({ org, user, sub, planKey, idempotencyKey }) => {
+export const startSubscriptionCheckout = async ({ org, user, sub, paymentMethod, idempotencyKey }) => {
+  if (sub.planKey === 'free') throw new AppError(422, 'PLAN_UNAVAILABLE', 'The Free plan has nothing to check out.');
+  const plan = await planOrThrow(sub.planKey);
+  return startCheckout({ org, user, sub, planKey: plan.key, kind: 'renewal', amountKobo: plan.priceMinor, idempotencyKey, paymentMethod });
+};
+
+export const upgradeSubscription = async ({ org, user, sub, planKey, idempotencyKey, paymentMethod }) => {
   const target = await planOrThrow(planKey);
   if (target.key === sub.planKey) return { noop: true };
 
@@ -139,13 +196,13 @@ export const upgradeSubscription = async ({ org, user, sub, planKey, idempotency
   }
 
   const amountKobo = proratedAmount(sub, target);
-  return startCheckout({ org, user, sub, planKey: target.key, kind: 'upgrade', amountKobo, idempotencyKey });
+  return startCheckout({ org, user, sub, planKey: target.key, kind: 'upgrade', amountKobo, idempotencyKey, paymentMethod });
 };
 
-export const renewSubscription = async ({ org, user, sub, idempotencyKey }) => {
+export const renewSubscription = async ({ org, user, sub, idempotencyKey, paymentMethod }) => {
   if (sub.planKey === 'free') throw new AppError(422, 'PLAN_UNAVAILABLE', 'The Free plan has nothing to renew.');
   const plan = await planOrThrow(sub.planKey);
-  return startCheckout({ org, user, sub, planKey: plan.key, kind: 'renewal', amountKobo: plan.priceMinor, idempotencyKey });
+  return startCheckout({ org, user, sub, planKey: plan.key, kind: 'renewal', amountKobo: plan.priceMinor, idempotencyKey, paymentMethod });
 };
 
 const cancelOtherActive = (organizationId, keepId) =>
@@ -183,7 +240,7 @@ const activate = async (payment) => {
   return sub;
 };
 
-const settlePaid = async (payment, { amountKobo, currency, paidAt }) => {
+const settlePaid = async (payment, { amountKobo, currency, paidAt, transferInstructions, channel, transactionId }) => {
   if (Number(amountKobo) !== Number(payment.amountKobo) || String(currency).toUpperCase() !== String(payment.currency).toUpperCase()) {
     payment.status = 'failed';
     await payment.save();
@@ -191,7 +248,16 @@ const settlePaid = async (payment, { amountKobo, currency, paidAt }) => {
   }
   const claimed = await SubscriptionPayment.findOneAndUpdate(
     { _id: payment._id, status: { $in: ['initialized', 'failed'] } },
-    { $set: { status: 'paid', paidAt: paidAt ?? new Date(), verifiedAt: new Date() } },
+    {
+      $set: {
+        status: 'paid',
+        paidAt: paidAt ?? new Date(),
+        verifiedAt: new Date(),
+        ...(transferInstructions ? { transferInstructions } : {}),
+        ...(channel ? { providerChannel: channel } : {}),
+        ...(transactionId ? { providerTransactionId: String(transactionId) } : {}),
+      },
+    },
     { new: true },
   );
   if (!claimed) {
@@ -215,27 +281,9 @@ export const assertPaymentAccess = async (userId, payment) => {
 };
 
 export const verifySubscriptionPayment = async (userId, reference) => {
-  const payment = await SubscriptionPayment.findOne({ reference });
-  if (!payment) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'That payment does not exist.');
-  await assertPaymentAccess(userId, payment);
-
-  const sub = await Subscription.findById(payment.subscription);
-  if (payment.status === 'paid') return { status: 'paid', duplicate: true, payment, subscription: sub };
-  if (payment.status === 'failed' || payment.status === 'refunded' || payment.status === 'abandoned') {
-    return { status: payment.status, payment, subscription: sub };
-  }
-
-  requireProvider();
-  const verified = await verifyOrgTransaction(reference);
-  if (verified.status !== 'success') {
-    if (verified.status === 'failed') {
-      payment.status = 'failed';
-      await payment.save();
-      return { status: 'failed', payment, subscription: sub };
-    }
-    return { status: 'pending', payment, subscription: sub };
-  }
-  return settlePaid(payment, verified);
+  const result = await getSubscriptionPaymentStatus(userId, { reference, refresh: true });
+  // Preserve historical verify shape while including normalized payment.
+  return result;
 };
 
 /** HMAC over the exact bytes, using the project's Paystack secret. */
@@ -253,10 +301,26 @@ export const handleSubscriptionWebhook = async (rawBody, signature, body) => {
   }
   const type = body?.event;
   const reference = body?.data?.reference;
+  const eventId = body?.data?.id != null ? String(body.data.id) : null;
   if (!type || !reference) return { ignored: true };
 
   const payment = await SubscriptionPayment.findOne({ reference });
   if (!payment) return { ignored: true };
+  if (eventId && payment.processedEventIds?.includes(eventId)) {
+    return { handled: true, duplicate: true, status: payment.status };
+  }
+
+  // Persist any provider transfer details present on webhook payloads without activating.
+  const transferInstructions = body?.data ? normalizePaystackTransferInstructions(body.data) : null;
+  if (transferInstructions || body?.data?.channel) {
+    const set = {};
+    if (transferInstructions && !payment.transferInstructions) set.transferInstructions = transferInstructions;
+    if (body?.data?.channel) set.providerChannel = String(body.data.channel);
+    if (eventId) set.processedEventIds = Array.from(new Set([...(payment.processedEventIds || []), eventId]));
+    if (Object.keys(set).length) await SubscriptionPayment.updateOne({ _id: payment._id }, { $set: set });
+  } else if (eventId) {
+    await SubscriptionPayment.updateOne({ _id: payment._id }, { $addToSet: { processedEventIds: eventId } });
+  }
 
   if (type === 'charge.failed') {
     if (payment.status === 'initialized') {
@@ -272,14 +336,80 @@ export const handleSubscriptionWebhook = async (rawBody, signature, body) => {
     }
     return { handled: true, status: payment.status };
   }
+  // Bank transfer payments settle through charge.success. "I have paid" client claims must never
+  // activate; only provider-confirmed success reaches settlePaid.
   if (type !== 'charge.success') return { ignored: true };
 
   const result = await settlePaid(payment, {
     amountKobo: body.data.amount,
     currency: body.data.currency,
     paidAt: body.data.paid_at ? new Date(body.data.paid_at) : new Date(),
+    transferInstructions,
+    channel: body?.data?.channel,
+    transactionId: body?.data?.id,
   });
   return { handled: true, duplicate: result.duplicate, status: result.status };
+};
+
+
+const assertPaymentInOrg = (payment, orgId) => {
+  if (String(payment.organization) !== String(orgId)) {
+    throw new AppError(404, 'NOT_FOUND', 'Payment not found.');
+  }
+};
+
+/**
+ * Status/refresh for a subscription payment. Safe to poll/refresh: returns the stored state,
+ * optionally re-checking the provider for initialized payments and persisting any newly available
+ * transfer instructions without creating a duplicate transaction.
+ */
+export const getSubscriptionPaymentStatus = async (userId, { orgId, reference, refresh = true }) => {
+  const payment = await SubscriptionPayment.findOne({ reference });
+  if (!payment) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'That payment does not exist.');
+  await assertPaymentAccess(userId, payment);
+  if (orgId) assertPaymentInOrg(payment, orgId);
+
+  if (payment.status === 'paid') {
+    const sub = await Subscription.findById(payment.subscription);
+    return { status: 'paid', duplicate: true, payment, subscription: sub, refreshed: false };
+  }
+  if (payment.status === 'failed' || payment.status === 'refunded' || payment.status === 'abandoned') {
+    const sub = await Subscription.findById(payment.subscription);
+    return { status: payment.status, payment, subscription: sub, refreshed: false };
+  }
+
+  if (!refresh) {
+    const sub = await Subscription.findById(payment.subscription);
+    return { status: 'pending', payment, subscription: sub, refreshed: false };
+  }
+
+  requireProvider();
+  const provider = await (fetchOrgTransaction ? fetchOrgTransaction(reference) : verifyOrgTransaction(reference));
+  if (provider.transferInstructions && !payment.transferInstructions) payment.transferInstructions = provider.transferInstructions;
+  if (provider.channel) payment.providerChannel = provider.channel;
+  if (provider.transactionId) payment.providerTransactionId = provider.transactionId;
+  if (payment.isModified()) await payment.save();
+
+  if (provider.status === 'success') {
+    return { ...(await settlePaid(payment, provider)), refreshed: true };
+  }
+  if (provider.status === 'failed') {
+    payment.status = 'failed';
+    await payment.save();
+    const sub = await Subscription.findById(payment.subscription);
+    return { status: 'failed', payment, subscription: sub, refreshed: true };
+  }
+  const sub = await Subscription.findById(payment.subscription);
+  return { status: 'pending', payment, subscription: sub, refreshed: true, providerStatus: provider.rawStatus ?? null };
+};
+
+/** Checkout recovery by payment reference (org-scoped). Never creates a new provider transaction. */
+export const getCheckoutByReference = async (userId, { orgId, reference }) => {
+  const payment = await SubscriptionPayment.findOne({ reference });
+  if (!payment) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'That payment does not exist.');
+  await assertPaymentAccess(userId, payment);
+  if (orgId) assertPaymentInOrg(payment, orgId);
+  return { ...checkoutShape(payment), status: payment.status, reused: true };
 };
 
 /* -------------------------------------------------- plan transitions (cron) */

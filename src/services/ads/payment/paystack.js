@@ -26,13 +26,28 @@ const call = async (path, init = {}) => {
 export const paystackProvider = {
   name: 'paystack',
 
-  async initialize({ reference, email, amountKobo, currency, callbackUrl, metadata }) {
+  async initialize({ reference, email, amountKobo, currency, callbackUrl, metadata, channels }) {
+    const body = {
+      reference,
+      email,
+      amount: amountKobo,
+      currency,
+      ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      ...(Array.isArray(channels) && channels.length ? { channels } : {}),
+      metadata,
+    };
     const { status, json } = await call('/transaction/initialize', {
       method: 'POST',
-      body: JSON.stringify({ reference, email, amount: amountKobo, currency, callback_url: callbackUrl, metadata }),
+      body: JSON.stringify(body),
     });
     if (status !== 200 || !json.status) throw new Error(`Paystack initialize failed (${status})`);
-    return { authorizationUrl: json.data.authorization_url };
+    const data = json.data && typeof json.data === 'object' ? json.data : {};
+    return {
+      authorizationUrl: data.authorization_url ?? null,
+      accessCode: data.access_code ?? null,
+      reference: data.reference ?? reference,
+      raw: data,
+    };
   },
 
   async verify(reference) {
@@ -40,15 +55,20 @@ export const paystackProvider = {
     if (status === 404) return { status: 'not_found' };
     if (status !== 200 || !json.status) throw new Error(`Paystack verify failed (${status})`);
     const d = json.data;
-    const map = { success: 'success', failed: 'failed', abandoned: 'failed', reversed: 'failed' };
+    const map = { success: 'success', failed: 'failed', abandoned: 'failed', reversed: 'failed', cancelled: 'failed', expired: 'failed' };
     return {
       status: map[d.status] ?? 'pending',
       amountKobo: d.amount,
       currency: d.currency,
       transactionId: String(d.id),
       paidAt: d.paid_at ? new Date(d.paid_at) : undefined,
+      channel: d.channel,
+      rawStatus: d.status,
+      raw: d,
     };
   },
+
+  async fetch(reference) { return this.verify(reference); },
 
   /** Full refund of a verified transaction. Throws on provider failure. */
   async refund({ reference, amountKobo }) {

@@ -68,7 +68,7 @@ router.patch(
 
 /** POST /api/v1/everybody/subscriptions/:id/checkout
  *  body: { Idempotency-Key: uuid }
- *  Returns { paymentId, reference, amountKobo, currency, authorizationUrl }
+ *  Returns payment + transfer instructions for native bank transfer (default), or authorizationUrl for legacy checkout mode.
  *  Auth: owner or admin.
  */
 router.post(
@@ -88,6 +88,28 @@ router.get(
   authenticate,
   requireOrgRole('owner', 'admin'),
   orgCtrl.verify,
+);
+
+/** GET /api/v1/everybody/organizations/:organizationId/subscriptions/:id/payment-status?reference=&refresh=true
+ *  Safe status/refresh for pending bank-transfer payments. Never creates a duplicate transaction.
+ *  Auth: owner or admin.
+ */
+router.get(
+  '/organizations/:organizationId/subscriptions/:id/payment-status',
+  authenticate,
+  requireOrgRole('owner', 'admin'),
+  orgCtrl.paymentStatus,
+);
+
+/** GET /api/v1/everybody/organizations/:organizationId/subscriptions/:id/checkout-status?reference=
+ *  Recovery for an existing checkout/payment reference (transfer instructions included). No new init.
+ *  Auth: owner or admin.
+ */
+router.get(
+  '/organizations/:organizationId/subscriptions/:id/checkout-status',
+  authenticate,
+  requireOrgRole('owner', 'admin'),
+  orgCtrl.checkoutStatus,
 );
 
 /** POST /api/v1/everybody/subscriptions/:id/upgrade

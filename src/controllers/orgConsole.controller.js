@@ -42,6 +42,11 @@ export const getExamResults = asyncHandler(async (req, res) => {
   res.json(await content.getExamResults(req.org._id, req.params.examId, req.query));
 });
 
+export const getExamLive = asyncHandler(async (req, res) => {
+  const sitting = await import('../services/orgExamSitting.service.js');
+  res.json(await sitting.getExamLiveCounts(req.org._id, req.params.examId));
+});
+
 /** Quote a cell and stop a spreadsheet from treating it as a formula. */
 const csvCell = (value) => {
   let text = value == null ? '' : String(value);
@@ -355,5 +360,6 @@ export const listFlags = asyncHandler(async (req, res) => {
 });
 
 export const updateFlag = asyncHandler(async (req, res) => {
-  res.json({ flag: await content.updateFlag(req.org._id, req.params.flagId, req.body, req.user._id) });
+  const all = req.query?.all === 'true' || req.query?.all === true;
+  res.json({ flag: await content.updateFlag(req.org._id, req.params.flagId, req.body, req.user._id, { all }) });
 });

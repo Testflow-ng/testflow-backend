@@ -50,7 +50,8 @@ app.use(
         url.startsWith('/api/ads/payments/webhook') ||
         url.startsWith('/api/billing/ad-free/webhook') ||
         url.startsWith('/api/v1/public/payments/webhook') ||
-        url.startsWith('/api/v1/everybody/subscriptions/webhook')
+        url.startsWith('/api/v1/everybody/subscriptions/webhook') ||
+        url.startsWith('/api/webhooks/paystack')
       ) {
         req.rawBody = buf;
       }
@@ -71,11 +72,19 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// Public share links. Deliberately outside `/api`: these are pages a person opens and a chat
-// crawler fetches, not API resources, so they carry no session and no CSRF handshake.
+/* -------------------------------------------------------------------- public sharing
+ * The static share page (HTML 404 crawlers are rewritten to it, with OG and the app shell
+ * inside) and the JSON that shell reads. Outside `/api`, so it never collides with a real
+ * resource and never inherits the CSRF handshake that guards `/api`.
+ * -------------------------------------------------------------------------- */
 app.use('/r', shareRoutes);
 
-// Notifications mounted with and without /api prefix
+/* -------------------------------------------------------------------- notifications
+ * The notification bell is read on every page load for every signed-in account, so it is
+ * mounted outside `/api` and therefore outside the `/api`-wide CSRF handshake that would
+ * block a plain cross-origin GET before the session is read. The one mutating route (mark
+ * read) carries csrfProtect itself, and the session cookie remains the real credential.
+ * -------------------------------------------------------------------------- */
 app.use('/notifications', csrfProtect, notificationRoutes);
 
 app.use('/api', csrfProtect, routes);

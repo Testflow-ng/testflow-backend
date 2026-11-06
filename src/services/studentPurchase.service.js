@@ -8,6 +8,7 @@ import { StudentEntitlement } from '../models/StudentEntitlement.js';
 import { User } from '../models/User.js';
 import { findStudentPlan } from '../config/plans.js';
 import { getProvider } from './ads/payment/index.js';
+import { normalizePaystackTransferInstructions } from './orgPaystack.service.js';
 import { grantEntitlement, revokeEntitlement, studentEntitlements } from './studentPlan.service.js';
 import { sendStudentPaymentSuccessEmail } from './email.service.js';
 
@@ -31,12 +32,30 @@ const providerOrNull = () => getProvider();
 
 const makeReference = () => `${REFERENCE_PREFIX}${crypto.randomBytes(12).toString('hex')}`;
 
+const transferView = (instructions) => {
+  if (!instructions) return null;
+  const src = typeof instructions.toObject === 'function' ? instructions.toObject() : instructions;
+  const view = {
+    bankName: src.bankName ?? null,
+    accountName: src.accountName ?? null,
+    accountNumber: src.accountNumber ?? null,
+    amountKobo: src.amountKobo ?? null,
+    currency: src.currency ?? null,
+    expiresAt: src.expiresAt ?? null,
+    transferReference: src.transferReference ?? null,
+    displayText: src.displayText ?? null,
+    channel: src.channel ?? null,
+  };
+  return Object.values(view).some((v) => v != null) ? view : null;
+};
+
 export const toPurchaseView = (purchase) => {
   const isExpired =
     purchase.status === 'initialized' &&
     purchase.createdAt &&
     Date.now() - new Date(purchase.createdAt).getTime() > PENDING_TIMEOUT_MS;
   const status = isExpired ? 'abandoned' : purchase.status;
+  const paymentMethod = purchase.paymentMethod ?? (purchase.transferInstructions ? 'paystack_bank_transfer' : 'paystack_checkout');
 
   return {
     id: String(purchase._id),
@@ -46,8 +65,13 @@ export const toPurchaseView = (purchase) => {
     amountKobo: purchase.amountKobo,
     currency: purchase.currency,
     status,
+    // Frontend-facing normalized semantics (backward compatible: maps to same lifecycle values).
+    paymentState: status === 'initialized' ? (paymentMethod === 'paystack_bank_transfer' ? 'awaiting_transfer' : 'initializing') : status,
     provider: purchase.provider,
+    paymentMethod,
     authorizationUrl: status === 'initialized' ? purchase.authorizationUrl ?? null : null,
+    transferInstructions: status === 'initialized' || status === 'paid' ? transferView(purchase.transferInstructions) : null,
+    providerChannel: purchase.providerChannel ?? null,
     paidAt: purchase.paidAt ?? null,
     verifiedAt: purchase.verifiedAt ?? null,
     refundedAt: purchase.refundedAt ?? null,
@@ -61,12 +85,23 @@ const findByIdempotencyKey = async (userId, idempotencyKey) => {
   return StudentPurchase.findOne({ user: userId, idempotencyKey });
 };
 
+const applyInitResult = (purchase, init) => {
+  if (!init) return;
+  if (init.authorizationUrl != null) purchase.authorizationUrl = init.authorizationUrl;
+  if (init.providerTransactionId) purchase.providerTransactionId = String(init.providerTransactionId);
+  if (init.channel) purchase.providerChannel = String(init.channel);
+  const instructions = init.transferInstructions ?? normalizePaystackTransferInstructions(init.raw ?? init);
+  if (instructions) purchase.transferInstructions = instructions;
+};
+
 /**
  * POST /api/billing/ad-free/checkout
- * Creates a pending purchase and, when a provider is configured, an authorization URL.
- * A duplicate `idempotencyKey` returns the original purchase instead of charging twice.
+ * Creates/reuses a pending purchase. Defaults to native Paystack bank transfer for student plans
+ * (Plus/pass_30d and any other available student plan). A duplicate `idempotencyKey` or an
+ * existing initialized purchase for the same plan/key is returned instead of creating duplicates.
+ * Refresh/status recovery never creates a new provider transaction.
  */
-export const startCheckout = async ({ user, planKey, idempotencyKey = null }) => {
+export const startCheckout = async ({ user, planKey, idempotencyKey = null, paymentMethod = 'paystack_bank_transfer' }) => {
   const plan = findStudentPlan(planKey);
   if (!plan || !plan.available) {
     throw new AppError(404, 'PLAN_NOT_FOUND', 'That plan is not available.');
@@ -81,6 +116,7 @@ export const startCheckout = async ({ user, planKey, idempotencyKey = null }) =>
     throw new AppError(503, 'PAYMENT_NOT_CONFIGURED', 'Payments are not configured yet.');
   }
 
+  const useBankTransfer = paymentMethod === 'paystack_bank_transfer';
   const reference = makeReference();
 
   const purchase = await StudentPurchase.create({
@@ -98,21 +134,23 @@ export const startCheckout = async ({ user, planKey, idempotencyKey = null }) =>
     currency: plan.currency,
     status: 'initialized',
     provider: provider.name,
+    paymentMethod: useBankTransfer ? 'paystack_bank_transfer' : 'paystack_checkout',
     idempotencyKey: idempotencyKey ?? undefined,
   });
 
   const callbackUrl = config.AD_FREE_CALLBACK_URL ?? `${config.CLIENT_URL.replace(/\/$/, '')}/billing/complete`;
   try {
-    const { authorizationUrl } = await provider.initialize({
+    const init = await provider.initialize({
       reference,
       email: user.email,
       amountKobo: purchase.amountKobo,
       currency: purchase.currency,
       callbackUrl,
+      ...(useBankTransfer ? { channels: ['bank_transfer'] } : {}),
       // Nothing personal beyond the product and the plan.
-      metadata: { product: 'testflow', kind: 'student_plan', planKey: plan.key, userId: String(user._id) },
+      metadata: { product: 'testflow', kind: 'student_plan', planKey: plan.key, userId: String(user._id), paymentMethod: purchase.paymentMethod },
     });
-    purchase.authorizationUrl = authorizationUrl;
+    applyInitResult(purchase, init);
     await purchase.save();
   } catch (error) {
     purchase.status = 'failed';
@@ -137,6 +175,12 @@ const mismatch = (purchase, payment) => ({
  */
 export const applyVerifiedPayment = async ({ purchase, payment, now = new Date() }) => {
   if (purchase.status === 'paid') return purchase; // already applied, never re-grant
+
+  // Persist any provider-returned transfer/channel metadata without granting entitlements.
+  const instructions = payment?.transferInstructions ?? normalizePaystackTransferInstructions(payment?.raw ?? payment);
+  if (instructions && !purchase.transferInstructions) purchase.transferInstructions = instructions;
+  if (payment?.channel) purchase.providerChannel = String(payment.channel);
+  if (payment?.transactionId) purchase.providerTransactionId = String(payment.transactionId);
 
   if (payment.status !== 'success') {
     purchase.status = payment.status === 'pending' ? 'initialized' : 'failed';
@@ -200,7 +244,7 @@ export const applyVerifiedPayment = async ({ purchase, payment, now = new Date()
  * re-verified against the provider, which is how the client learns the outcome if the webhook is
  * not reachable (local development, provider hiccup).
  */
-export const getStatus = async ({ user, reference = null, now = new Date() }) => {
+export const getStatus = async ({ user, reference = null, refresh = true, now = new Date() }) => {
   const entitlements = await studentEntitlements(user._id, { now });
 
   if (!reference) {
@@ -211,12 +255,20 @@ export const getStatus = async ({ user, reference = null, now = new Date() }) =>
   if (!purchase) throw new AppError(404, 'PURCHASE_NOT_FOUND', 'Purchase not found.');
 
   const provider = providerOrNull();
-  if (purchase.status === 'initialized' && purchase.provider === 'paystack' && provider) {
-    const payment = await provider.verify(reference);
+  const shouldRefresh = refresh && purchase.status === 'initialized' && purchase.provider === 'paystack' && provider;
+  if (shouldRefresh) {
+    const payment = await (typeof provider.fetch === 'function' ? provider.fetch(reference) : provider.verify(reference));
     await applyVerifiedPayment({ purchase, payment, now });
   }
 
   return { entitlements: await studentEntitlements(user._id, { now }), purchase };
+};
+
+/** Safe checkout/purchase recovery by reference for the owning student. Never creates a new provider transaction. */
+export const getPurchaseByReference = async ({ user, reference }) => {
+  const purchase = await StudentPurchase.findOne({ reference, user: user._id });
+  if (!purchase) throw new AppError(404, 'PURCHASE_NOT_FOUND', 'Purchase not found.');
+  return purchase;
 };
 
 /** Students may abandon their own pending purchase; a paid one is a refund decision, not a cancel. */
