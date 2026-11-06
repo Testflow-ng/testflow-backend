@@ -78,14 +78,39 @@ describe('Everybody step 3 — plan checkout and renewals (integration)', { skip
     await Promise.all(Object.values(mongoose.models).map((mod) => mod.init()));
     const { seedPlans } = await import('../src/scripts/seed-plans.js');
     await seedPlans();
-    fakeState = { amounts: new Map() };
+    fakeState = { amounts: new Map(), channels: new Map() };
     const { setOrgPaystackForTests } = await import('../src/services/orgPaystack.service.js');
     setOrgPaystackForTests({
-      initialize: async ({ reference, amountKobo }) => {
+      initialize: async ({ reference, amountKobo, channels }) => {
         fakeState.amounts.set(reference, amountKobo);
-        return { authorizationUrl: `https://pay.test/${reference}` };
+        fakeState.channels?.set(reference, channels);
+        if (Array.isArray(channels) && channels.includes('bank_transfer')) {
+          return {
+            reference,
+            authorizationUrl: null,
+            transferInstructions: {
+              bankName: 'Wema Bank',
+              accountName: 'TestFlow / Subscription',
+              accountNumber: '0123456789',
+              amountKobo,
+              currency: 'NGN',
+              expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+              transferReference: reference,
+              displayText: 'Transfer the exact amount to this account.',
+              channel: 'bank_transfer',
+            },
+          };
+        }
+        return { reference, authorizationUrl: `https://pay.test/${reference}` };
       },
       verify: async (reference) => ({
+        status: 'success',
+        amountKobo: fakeState.amounts.get(reference) ?? 0,
+        currency: 'NGN',
+        transactionId: `tx_${reference}`,
+        paidAt: new Date(),
+      }),
+      fetch: async (reference) => ({
         status: 'success',
         amountKobo: fakeState.amounts.get(reference) ?? 0,
         currency: 'NGN',
@@ -113,12 +138,13 @@ describe('Everybody step 3 — plan checkout and renewals (integration)', { skip
     assert.equal(free.planKey, 'free');
 
     const upgrade = await c.call('POST', `/api/v1/everybody/subscriptions/${free.id}/upgrade`, {
-      body: { planKey: 'pro' },
+      body: { planKey: 'pro', paymentMethod: 'paystack_checkout' },
       headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
     assert.equal(upgrade.status, 201, JSON.stringify(upgrade.json));
     assert.ok(upgrade.json.reference);
     assert.ok(upgrade.json.authorizationUrl);
+    assert.equal(upgrade.json.paymentMethod, 'paystack_checkout');
     assert.ok(upgrade.json.amountKobo > 0);
 
     const verify = await c.call('GET', `/api/v1/everybody/payments/verify?reference=${upgrade.json.reference}`);
@@ -256,4 +282,47 @@ describe('Everybody step 3 — plan checkout and renewals (integration)', { skip
     const paidNow = await c.call('GET', `/api/v1/everybody/organizations/${orgId}/exams/${paidId}`);
     assert.equal(paidNow.json.exam.status, 'draft');
   });
+
+  it('subscription upgrade defaults to native bank transfer, returns instructions, and refresh/status do not create duplicates', async () => {
+    const { c } = await registerLogin();
+    const orgId = await mkOrg(c);
+    const free = await currentSub(c, orgId);
+    const idem = crypto.randomUUID();
+
+    const upgrade = await c.call('POST', `/api/v1/everybody/subscriptions/${free.id}/upgrade`, {
+      body: { planKey: 'pro' },
+      headers: { 'Idempotency-Key': idem },
+    });
+    assert.equal(upgrade.status, 201, JSON.stringify(upgrade.json));
+    assert.equal(upgrade.json.paymentMethod, 'paystack_bank_transfer', JSON.stringify(upgrade.json));
+    assert.equal(upgrade.json.authorizationUrl, null);
+    assert.equal(upgrade.json.transferInstructions?.accountNumber, '0123456789');
+    assert.equal(upgrade.json.transferInstructions?.bankName, 'Wema Bank');
+    assert.equal(upgrade.json.transferInstructions?.amountKobo, upgrade.json.amountKobo);
+
+    // Reuse same idempotency key: returns the existing pending payment, no duplicate init.
+    const again = await c.call('POST', `/api/v1/everybody/subscriptions/${free.id}/upgrade`, {
+      body: { planKey: 'pro' },
+      headers: { 'Idempotency-Key': idem },
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.json));
+    assert.equal(again.json.reference, upgrade.json.reference);
+    assert.equal(again.json.reused, true);
+
+    const checkoutStatus = await c.call('GET', `/api/v1/everybody/organizations/${orgId}/subscriptions/${free.id}/checkout-status?reference=${encodeURIComponent(upgrade.json.reference)}`);
+    assert.equal(checkoutStatus.status, 200, JSON.stringify(checkoutStatus.json));
+    assert.equal(checkoutStatus.json.reference, upgrade.json.reference);
+    assert.equal(checkoutStatus.json.paymentMethod, 'paystack_bank_transfer');
+
+    const status = await c.call('GET', `/api/v1/everybody/organizations/${orgId}/subscriptions/${free.id}/payment-status?reference=${encodeURIComponent(upgrade.json.reference)}&refresh=false`);
+    assert.equal(status.status, 200, JSON.stringify(status.json));
+    assert.equal(status.json.payment.reference, upgrade.json.reference);
+    assert.equal(status.json.payment.status, 'initialized');
+
+    const verify = await c.call('GET', `/api/v1/everybody/payments/verify?reference=${upgrade.json.reference}`);
+    assert.equal(verify.status, 200, JSON.stringify(verify.json));
+    assert.equal(verify.json.status, 'paid');
+    assert.equal(verify.json.subscription.planKey, 'pro');
+  });
+
 });

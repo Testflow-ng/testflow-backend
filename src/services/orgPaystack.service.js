@@ -86,37 +86,124 @@ export const setOrgPaystackForTests = (provider) => {
   override = provider;
 };
 
+const toKoboNumber = (value) => {
+  if (value == null || value === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const pickString = (...values) => {
+  for (const v of values) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return undefined;
+};
+
+const pickDate = (...values) => {
+  for (const v of values) {
+    if (!v) continue;
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return undefined;
+};
+
+/**
+ * Normalize provider "Pay with Transfer"/bank-transfer instruction fields defensively.
+ * Paystack responses can vary by integration/channel and account configuration; we only map
+ * fields the provider actually returns and never fabricate account details.
+ */
+export const normalizePaystackTransferInstructions = (data) => {
+  if (!data || typeof data !== 'object') return null;
+  const auth = data.authorization && typeof data.authorization === 'object' ? data.authorization : {};
+  const candidates = [data, auth, data.bank_transfer, data.transfer, auth.transfer].filter((v) => v && typeof v === 'object');
+  const merged = Object.assign({}, ...candidates);
+  const bankName = pickString(merged.bank_name, merged.receiver_bank, merged.bank, merged.bankName);
+  const accountName = pickString(merged.account_name, merged.receiver_name, merged.accountName, merged.receiver);
+  const accountNumber = pickString(merged.account_number, merged.transfer_account, merged.accountNumber, merged.receiver_account_number);
+  const amountKobo = toKoboNumber(merged.amount ?? merged.transfer_amount ?? merged.requested_amount ?? data.amount);
+  const currency = pickString(merged.currency, data.currency)?.toUpperCase();
+  const expiresAt = pickDate(
+    merged.account_expires_at,
+    merged.expires_at,
+    merged.expiry,
+    merged.expiry_date,
+    merged.transfer_account_expires_at,
+  );
+  const transferReference = pickString(merged.transfer_reference, merged.reference, merged.transaction_reference);
+  const displayText = pickString(merged.display_text, merged.message, merged.note, merged.description);
+  const channel = pickString(merged.channel, data.channel, auth.channel);
+
+  const hasUsefulField = Boolean(bankName || accountName || accountNumber || transferReference || displayText || expiresAt);
+  if (!hasUsefulField) return null;
+  return {
+    ...(bankName ? { bankName } : {}),
+    ...(accountName ? { accountName } : {}),
+    ...(accountNumber ? { accountNumber } : {}),
+    ...(amountKobo != null ? { amountKobo } : {}),
+    ...(currency ? { currency } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(transferReference ? { transferReference } : {}),
+    ...(displayText ? { displayText } : {}),
+    ...(channel ? { channel } : {}),
+  };
+};
+
+const mapProviderStatus = (status) => {
+  const map = { success: 'success', failed: 'failed', abandoned: 'failed', reversed: 'failed', cancelled: 'failed', expired: 'failed' };
+  return map[status] ?? 'pending';
+};
+
+const normalizeTransaction = (data) => ({
+  status: mapProviderStatus(data?.status),
+  amountKobo: data?.amount,
+  currency: data?.currency,
+  transactionId: data?.id != null ? String(data.id) : undefined,
+  paidAt: data?.paid_at ? new Date(data.paid_at) : undefined,
+  channel: pickString(data?.channel, data?.authorization?.channel),
+  gatewayResponse: pickString(data?.gateway_response, data?.message),
+  transferInstructions: normalizePaystackTransferInstructions(data),
+  rawStatus: pickString(data?.status),
+});
+
 const realProvider = {
-  async initialize({ reference, email, amountKobo, currency, callbackUrl, subaccount, metadata }) {
-    const { status, json } = await call('/transaction/initialize', {
-      method: 'POST',
-      body: JSON.stringify({
-        reference,
-        email,
-        amount: amountKobo,
-        currency,
-        callback_url: callbackUrl,
-        ...(subaccount ? { subaccount } : {}),
-        metadata,
-      }),
-    });
-    if (status !== 200 || !json.status) throw new AppError(502, 'PAYMENT_INIT_FAILED', 'Could not start the payment. Please try again.');
-    return { authorizationUrl: json.data.authorization_url };
+  async initialize({ reference, email, amountKobo, currency, callbackUrl, subaccount, metadata, channels }) {
+    const body = {
+      reference,
+      email,
+      amount: amountKobo,
+      currency,
+      ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      ...(subaccount ? { subaccount } : {}),
+      ...(Array.isArray(channels) && channels.length ? { channels } : {}),
+      metadata,
+    };
+    const { status, json } = await call('/transaction/initialize', { method: 'POST', body: JSON.stringify(body) });
+    if (status !== 200 || !json.status) {
+      throw new AppError(502, 'PAYMENT_INIT_FAILED', json?.message || 'Could not start the payment. Please try again.');
+    }
+    const data = json.data && typeof json.data === 'object' ? json.data : {};
+    return {
+      authorizationUrl: data.authorization_url ?? null,
+      accessCode: data.access_code ?? null,
+      reference: data.reference ?? reference,
+      transferInstructions: normalizePaystackTransferInstructions(data),
+      raw: data,
+    };
   },
 
   async verify(reference) {
     const { status, json } = await call(`/transaction/verify/${encodeURIComponent(reference)}`);
     if (status === 404) return { status: 'not_found' };
     if (status !== 200 || !json.status) throw new AppError(502, 'PAYMENT_VERIFY_FAILED', 'Could not verify the payment. Please try again.');
-    const data = json.data;
-    const map = { success: 'success', failed: 'failed', abandoned: 'failed', reversed: 'failed' };
-    return {
-      status: map[data.status] ?? 'pending',
-      amountKobo: data.amount,
-      currency: data.currency,
-      transactionId: String(data.id),
-      paidAt: data.paid_at ? new Date(data.paid_at) : undefined,
-    };
+    return normalizeTransaction(json.data);
+  },
+
+  async fetch(reference) {
+    // Verify is the authoritative reference lookup for a transaction reference.
+    return this.verify(reference);
   },
 
   async refund({ reference, amountKobo }) {
@@ -143,6 +230,10 @@ const realProvider = {
       reference: body.data.reference,
       eventId: body.data.id ? String(body.data.id) : null,
       refundReference: body.data.transaction_reference ?? null,
+      transferInstructions: normalizePaystackTransferInstructions(body.data),
+      channel: pickString(body?.data?.channel, body?.data?.authorization?.channel),
+      amountKobo: body?.data?.amount,
+      currency: body?.data?.currency,
     };
   },
 };
@@ -159,6 +250,10 @@ const requireProvider = () => {
 
 export const initializeOrgTransaction = (input) => requireProvider().initialize(input);
 export const verifyOrgTransaction = (reference) => requireProvider().verify(reference);
+export const fetchOrgTransaction = (reference) => {
+  const p = requireProvider();
+  return typeof p.fetch === 'function' ? p.fetch(reference) : p.verify(reference);
+};
 export const refundOrgTransaction = (input) => requireProvider().refund(input);
 export const verifyOrgWebhookSignature = (rawBody, signature) => requireProvider().verifyWebhookSignature(rawBody, signature);
 export const parseOrgWebhook = (body) => requireProvider().parseWebhook(body);

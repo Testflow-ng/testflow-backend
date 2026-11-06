@@ -128,39 +128,64 @@ export const updateSub = asyncHandler(async (req, res) => {
 });
 
 export const checkout = asyncHandler(async (req, res) => {
-  const sub = await Subscription.findOne({ _id: req.params.id, organization: req.org._id }).lean();
+  const sub = await Subscription.findOne({ _id: req.params.id, organization: req.org._id });
   if (!sub) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
-  // In v1 we return a Paystack checkout; provider must be configured.
-  if (!process.env.PAYSTACK_SECRET_KEY) throw new AppError(503, 'PAYMENT_NOT_CONFIGURED', 'Payment provider not configured.');
-  const reference = `SUB-${sub._id.toString().slice(-6).toUpperCase()}`;
-  const amountKobo = sub.planSnapshot.priceMinor;
-  const authorizationUrl = `${process.env.CLIENT_URL}/subscription/pay?reference=${reference}`;
-  await recordAction({
-    actorId: req.user._id, action: 'SUBSCRIPTION_PAYMENT_VERIFIED', targetId: req.org._id, targetType: 'Organization',
-    metadata: { reference, amountKobo }, req,
+  const result = await subs.startSubscriptionCheckout({
+    org: req.org,
+    user: req.user,
+    sub,
+    paymentMethod: req.body?.paymentMethod,
+    idempotencyKey: req.get('idempotency-key') ?? null,
   });
-  res.json({ paymentId: reference, reference, amountKobo, currency: 'NGN', authorizationUrl });
+  await recordAction({
+    actorId: req.user._id, action: 'SUBSCRIPTION_CHECKOUT_STARTED', targetId: req.org._id, targetType: 'Organization',
+    metadata: { reference: result.reference, amountKobo: result.amountKobo, paymentMethod: result.paymentMethod, reused: result.reused }, req,
+  });
+  res.status(result.reused ? 200 : 201).json(result);
 });
 
 export const verify = asyncHandler(async (req, res) => {
   const ref = req.query.reference;
-  if (!ref) throw new AppError(400, 'INVALID_OR_EXPIRED_TOKEN', 'Reference required.');
-  // Re-verify with provider (Paystack). In v1 we just mark it paid locally.
-  const sub = await Subscription.findOne({ organization: req.org._id, status: 'pending' }).lean();
-  if (!sub) throw new AppError(404, 'NOT_FOUND', 'No pending subscription to verify.');
-  // Atomically claim: status != paid → paid
-  const updated = await Subscription.findOneAndUpdate(
-    { _id: sub._id, status: 'pending' },
-    { status: 'active', currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
-    { new: true },
-  );
-  if (!updated) throw new AppError(400, 'SUBSCRIPTION_EXISTS', 'Subscription already processed or not pending.');
-  // One active plan. The Free default and any older paid plan give way to the one just paid for.
-  await Subscription.updateMany(
-    { organization: req.org._id, _id: { $ne: updated._id }, status: 'active' },
-    { $set: { status: 'cancelled' } },
-  );
-  res.json({ subscription: orgs.subView(updated), entitlements: await orgs.entitlementsFor(req.org._id) });
+  if (!ref) throw new AppError(400, 'VALIDATION_ERROR', 'Reference required.');
+  const result = await subs.getSubscriptionPaymentStatus(req.user._id, {
+    orgId: req.org._id,
+    reference: ref,
+    refresh: true,
+  });
+  res.json({
+    status: result.status,
+    duplicate: Boolean(result.duplicate),
+    refreshed: Boolean(result.refreshed),
+    payment: result.payment ? subs.paymentView(result.payment) : null,
+    subscription: result.subscription ? orgs.subView(result.subscription) : null,
+    entitlements: result.payment?.organization ? await orgs.entitlementsFor(result.payment.organization) : null,
+  });
+});
+
+export const paymentStatus = asyncHandler(async (req, res) => {
+  const ref = req.query.reference;
+  if (!ref) throw new AppError(400, 'VALIDATION_ERROR', 'Reference required.');
+  const refresh = req.query.refresh === undefined ? true : !['false', '0', 'no'].includes(String(req.query.refresh).toLowerCase());
+  const result = await subs.getSubscriptionPaymentStatus(req.user._id, {
+    orgId: req.org._id,
+    reference: ref,
+    refresh,
+  });
+  res.json({
+    status: result.status,
+    duplicate: Boolean(result.duplicate),
+    refreshed: Boolean(result.refreshed),
+    providerStatus: result.providerStatus ?? null,
+    payment: result.payment ? subs.paymentView(result.payment) : null,
+    subscription: result.subscription ? orgs.subView(result.subscription) : null,
+  });
+});
+
+export const checkoutStatus = asyncHandler(async (req, res) => {
+  const ref = req.query.reference;
+  if (!ref) throw new AppError(400, 'VALIDATION_ERROR', 'Reference required.');
+  const result = await subs.getCheckoutByReference(req.user._id, { orgId: req.org._id, reference: ref });
+  res.json(result);
 });
 
 const loadOwnSub = async (req) => {
@@ -178,6 +203,7 @@ export const upgradeSub = asyncHandler(async (req, res) => {
     sub,
     planKey: req.body?.planKey,
     idempotencyKey: req.get('idempotency-key') ?? null,
+    paymentMethod: req.body?.paymentMethod,
   });
   if (result.downgrade || result.noop) {
     await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_DOWNGRADE', targetId: sub._id, targetType: 'Organization', metadata: { planKey: req.body?.planKey }, req });
@@ -195,6 +221,7 @@ export const renewSub = asyncHandler(async (req, res) => {
     user: req.user,
     sub,
     idempotencyKey: req.get('idempotency-key') ?? null,
+    paymentMethod: req.body?.paymentMethod,
   });
   await recordAction({ actorId: req.user._id, action: 'SUBSCRIPTION_RENEW', targetId: sub._id, targetType: 'Organization', metadata: { reference: result.reference }, req });
   res.status(result.reused ? 200 : 201).json(result);
