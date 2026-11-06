@@ -24,6 +24,7 @@ import adminOrgRoutes from './adminOrg.routes.js';
 import advertisingRoutes from './advertising.routes.js';
 import billingRoutes from './billing.routes.js';
 import notificationRoutes from './notification.routes.js';
+import webhooksRoutes from './webhooks.routes.js';
 
 const router = Router();
 
@@ -54,6 +55,10 @@ router.use('/ads', adsRoutes);
 router.use('/advertising', advertisingRoutes);
 router.use('/billing', billingRoutes);
 router.use('/notifications', notificationRoutes);
+// Central provider webhooks. Mounted under /api (see app.js) with raw-body capture; handlers
+// verify signatures before processing. Preferred Paystack Test/Live webhook URL is
+// POST /api/webhooks/paystack.
+router.use('/webhooks', webhooksRoutes);
 router.use('/admin/ads', adminAdsRoutes); // before '/admin' so it is matched first
 router.use('/admin', adminRoutes);
 router.use('/everybody', everybodyRoutes);

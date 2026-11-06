@@ -442,7 +442,7 @@ Object.assign(window.testflowOpenApi.paths, {
   },
   [`${api}/v1/everybody/subscriptions/webhook`]: {
     post: {
-      summary: 'Provider payment webhook (Paystack)',
+      summary: 'Provider payment webhook (Paystack, legacy org endpoint)',
       description: 'Server-to-server only. Verifies `x-paystack-signature` (HMAC-SHA512 over the raw request body), re-checks amount/currency/reference against the stored `SubscriptionPayment`, and activates the subscription idempotently. Duplicate deliveries and re-verification are safe no-ops. Unknown references are ignored.',
       security: false,
       parameters: [{ name: 'x-paystack-signature', in: 'header', required: true, schema: { type: 'string' } }],
@@ -910,8 +910,11 @@ Object.assign(window.testflowOpenApi.paths, {
   [`${api}/billing/ad-free/entitlements/{userId}/revoke`]: {
     post: tagged('Billing', 'Revoke an entitlement by hand (support)', { admin: true, parameters: [{ name: 'userId', in: 'path', required: true, schema: ref('ObjectId') }], body: { type: 'object', required: ['key'], additionalProperties: false, properties: { key: ref('EntitlementKey'), reason: str({ maxLength: 200 }) } }, response: { type: 'object', properties: { entitlement: { type: 'object' } } }, notFound: true, description: 'Keeps the row (the history) and clears liveness. Used for refunds, chargebacks and support corrections.' }),
   },
+  [`${api}/webhooks/paystack`]: {
+    post: tagged('Billing', 'Central Paystack webhook (recommended for dashboard)', { security: false, parameters: [{ name: 'x-paystack-signature', in: 'header', required: true, schema: { type: 'string' }, description: 'HMAC-SHA512 over the exact raw request body using the configured Paystack secret key (Paystack dashboard webhook signing).' }], response: { type: 'object', properties: { endpoint: str(), source: str({ nullable: true, enum: ['student_subscription', 'org_subscription'] }), applied: { type: 'boolean' }, handled: { type: 'boolean' }, duplicate: { type: 'boolean' }, ignored: { type: 'boolean' }, refunded: { type: 'boolean' }, status: str({ nullable: true }), reference: str({ nullable: true }) } }, errors: true, description: 'Preferred single Test/Live webhook URL for Paystack: **POST /api/webhooks/paystack** (configure the full public HTTPS URL for your deployed backend). Captures raw body, verifies signature before dispatch, and routes by reference: `TFS-*` => student plan purchases (Plus/all available student plans), `SUB-*` => organisation subscriptions (Pro/Studio). Reuses existing settlement logic (provider re-verification, amount/currency/reference/ownership checks, idempotent dedupe). Unknown references/events are safely ignored; invalid signature/malformed payload/processing failures return errors and are not acknowledged as successful settlement. Legacy endpoints remain supported for backward compatibility.' }),
+  },
   [`${api}/billing/ad-free/webhook`]: {
-    post: tagged('Billing', 'Payment provider webhook (Paystack, student purchases)', { security: false, response: { type: 'object', properties: { applied: { type: 'boolean' }, duplicate: { type: 'boolean' }, ignored: { type: 'boolean' }, refunded: { type: 'boolean' }, reference: str() } }, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Authenticated by HMAC-SHA512 over raw bytes (`x-paystack-signature`). Handles `TFS-` purchase references (ignores others). Re-verifies provider and checks amount/currency/user/reference before granting entitlements; redeliveries are idempotent no-ops. Bank-transfer settlements arrive as provider-confirmed success and are applied only after verification.' }),
+    post: tagged('Billing', 'Payment provider webhook (Paystack, legacy student endpoint)', { security: false, response: { type: 'object', properties: { applied: { type: 'boolean' }, duplicate: { type: 'boolean' }, ignored: { type: 'boolean' }, refunded: { type: 'boolean' }, reference: str() } }, unavailable: 'PAYMENT_NOT_CONFIGURED', description: 'Authenticated by HMAC-SHA512 over raw bytes (`x-paystack-signature`). Handles `TFS-` purchase references (ignores others). Re-verifies provider and checks amount/currency/user/reference before granting entitlements; redeliveries are idempotent no-ops. Bank-transfer settlements arrive as provider-confirmed success and are applied only after verification.' }),
   },
 });
 

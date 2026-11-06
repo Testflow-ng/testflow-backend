@@ -166,3 +166,15 @@ Fields are provider-dependent; expose only what Paystack returns:
 | Org Pro/Studio | `POST /api/v1/everybody/organizations/:orgId/subscriptions/:id/checkout` or upgrade/renew endpoints | `GET .../subscriptions/:id/checkout-status?reference=` | `GET .../subscriptions/:id/payment-status?reference=&refresh=` | `GET .../verify?reference=` or `/api/v1/everybody/payments/verify?reference=` | `POST /api/v1/everybody/subscriptions/webhook` |
 
 All money values are integer **kobo** (`amountKobo`).
+
+## Central Paystack webhook (recommended)
+
+Paystack dashboard is typically configured with one webhook URL per environment. The backend now provides a central dispatcher:
+
+- **Preferred endpoint:** `POST /api/webhooks/paystack` (full deployed URL: `https://<PUBLIC_API_BASE_URL>/api/webhooks/paystack`)
+- **Signature:** `x-paystack-signature` header, HMAC-SHA512 over the exact raw request body using the configured Paystack secret key (as implemented/verified in this codebase). Signature is verified before dispatch; unsigned/invalid signatures are rejected.
+- **Raw body:** captured for `/api/webhooks/paystack` in `src/app.js`.
+- **Dispatch:** `TFS-*` references => existing student purchase webhook logic; `SUB-*` references => existing organisation subscription webhook logic. No settlement logic duplicated.
+- **Safety:** preserves amount/currency/reference/ownership/provider verification checks, idempotent dedupe, and safe handling for unknown references/unsupported events. Processing failures return errors (not successful settlement acknowledgements).
+- **Legacy endpoints (backward compatible):** `POST /api/billing/ad-free/webhook` (student), `POST /api/v1/everybody/subscriptions/webhook` (org), and other product-specific webhooks remain in place. Configure Paystack dashboard to `/api/webhooks/paystack` for consolidated student/org subscription handling.
+

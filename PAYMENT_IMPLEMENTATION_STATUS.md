@@ -54,3 +54,12 @@ Repository: `/workspace/testflow-backend`
 3. **Student checkout endpoint naming**: existing path remains `/api/billing/ad-free/checkout` for backward compatibility; semantics now cover Plus/all student plans with bank transfer default. Frontend can use same endpoint + new `paymentMethod/paymentState/transferInstructions` fields.
 4. **Ad checkout still redirect-oriented**: if ads should also move to native transfer, that requires separate product/UX/test work (not done; not a subscription product in this task).
 5. **Transfer expiry enforcement**: provider expiry is persisted when returned; explicit expiry state transitions/polling policy can be tightened after confirming Paystack payloads/events.
+
+## Central Paystack webhook consolidation
+
+- Added `src/routes/webhooks.routes.js` and mounted under `/api/webhooks` (`POST /api/webhooks/paystack`).
+- Added raw-body capture for `/api/webhooks/paystack` in `src/app.js`.
+- Dispatcher verifies/relies on existing handler signature checks, routes `TFS-*` to `studentPurchase.handleWebhook` and `SUB-*` to `orgSubscription.handleSubscriptionWebhook`, ignores unknown references safely, and does not duplicate settlement logic.
+- Legacy student/org webhook endpoints preserved for backward compatibility.
+- OpenAPI updated to document central webhook as recommended and legacy endpoints.
+
