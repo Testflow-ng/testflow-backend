@@ -44,6 +44,10 @@ export const getSubjectByCode = async (code, { includeInactive = false } = {}) =
   return subject;
 };
 
+export const getSubjectById = async (id) => {
+  return Subject.findById(id);
+};
+
 export const deleteSubject = async (id) => {
   // Cascading delete for questions only.
   // We preserve ExamSessions (student history) even if the subject is removed,
