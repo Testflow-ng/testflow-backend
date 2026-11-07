@@ -62,6 +62,9 @@ export const toPurchaseView = (purchase) => {
     if (transfer.amountKobo == null && purchase.amountKobo != null) transfer.amountKobo = purchase.amountKobo;
     if (!transfer.currency && purchase.currency) transfer.currency = purchase.currency;
     if (!transfer.transferReference && purchase.reference) transfer.transferReference = purchase.reference;
+    if (!transfer.accountName || transfer.accountName.toUpperCase() === 'PAYSTACK CHECKOUT') {
+      transfer.accountName = 'Testflow';
+    }
   }
 
   return {

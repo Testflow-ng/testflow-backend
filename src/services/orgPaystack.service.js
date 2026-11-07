@@ -122,7 +122,10 @@ export const normalizePaystackTransferInstructions = (data, fallback = {}) => {
   const merged = Object.assign({}, ...candidates);
   const bankObj = (merged.bank && typeof merged.bank === 'object') ? merged.bank : {};
   const bankName = pickString(merged.bank_name, merged.receiver_bank, bankObj.name, typeof merged.bank === 'string' ? merged.bank : undefined, merged.bankName);
-  const accountName = pickString(merged.account_name, merged.receiver_name, merged.accountName, merged.receiver);
+  let accountName = pickString(merged.account_name, merged.receiver_name, merged.accountName, merged.receiver);
+  if (!accountName || accountName.trim().toUpperCase() === 'PAYSTACK CHECKOUT') {
+    accountName = 'Testflow';
+  }
   const accountNumber = pickString(merged.account_number, merged.transfer_account, merged.accountNumber, merged.receiver_account_number);
   const amountKobo = toKoboNumber(merged.amount ?? merged.transfer_amount ?? merged.requested_amount ?? data.amount ?? fallback.amountKobo);
   const currency = pickString(merged.currency, data.currency, fallback.currency, 'NGN')?.toUpperCase();

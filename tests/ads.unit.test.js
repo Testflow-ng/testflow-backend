@@ -166,7 +166,7 @@ describe('payment webhook signature (paystack adapter)', () => {
     };
     const norm = normalizePaystackTransferInstructions(chargeData, { currency: 'NGN' });
     assert.equal(norm.bankName, 'Paystack-Titan');
-    assert.equal(norm.accountName, 'PAYSTACK CHECKOUT');
+    assert.equal(norm.accountName, 'Testflow');
     assert.equal(norm.accountNumber, '9983669362');
     assert.equal(norm.amountKobo, 50000);
     assert.equal(norm.currency, 'NGN');
