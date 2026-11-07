@@ -57,6 +57,13 @@ export const toPurchaseView = (purchase) => {
   const status = isExpired ? 'abandoned' : purchase.status;
   const paymentMethod = purchase.paymentMethod ?? (purchase.transferInstructions ? 'paystack_bank_transfer' : 'paystack_checkout');
 
+  const transfer = status === 'initialized' || status === 'paid' ? transferView(purchase.transferInstructions) : null;
+  if (transfer) {
+    if (transfer.amountKobo == null && purchase.amountKobo != null) transfer.amountKobo = purchase.amountKobo;
+    if (!transfer.currency && purchase.currency) transfer.currency = purchase.currency;
+    if (!transfer.transferReference && purchase.reference) transfer.transferReference = purchase.reference;
+  }
+
   return {
     id: String(purchase._id),
     reference: purchase.reference,
@@ -70,7 +77,7 @@ export const toPurchaseView = (purchase) => {
     provider: purchase.provider,
     paymentMethod,
     authorizationUrl: status === 'initialized' ? purchase.authorizationUrl ?? null : null,
-    transferInstructions: status === 'initialized' || status === 'paid' ? transferView(purchase.transferInstructions) : null,
+    transferInstructions: transfer,
     providerChannel: purchase.providerChannel ?? null,
     paidAt: purchase.paidAt ?? null,
     verifiedAt: purchase.verifiedAt ?? null,
@@ -90,7 +97,11 @@ const applyInitResult = (purchase, init) => {
   if (init.authorizationUrl != null) purchase.authorizationUrl = init.authorizationUrl;
   if (init.providerTransactionId) purchase.providerTransactionId = String(init.providerTransactionId);
   if (init.channel) purchase.providerChannel = String(init.channel);
-  const instructions = init.transferInstructions ?? normalizePaystackTransferInstructions(init.raw ?? init);
+  const instructions = init.transferInstructions ?? normalizePaystackTransferInstructions(init.raw ?? init, {
+    amountKobo: purchase.amountKobo,
+    currency: purchase.currency,
+    reference: purchase.reference,
+  });
   if (instructions) purchase.transferInstructions = instructions;
 };
 

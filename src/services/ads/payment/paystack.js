@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { config } from '../../../config/env.js';
+import { normalizePaystackTransferInstructions } from '../../orgPaystack.service.js';
 
 /**
  * Paystack adapter implementing the PaymentProvider contract:
@@ -26,7 +27,41 @@ const call = async (path, init = {}) => {
 export const paystackProvider = {
   name: 'paystack',
 
-  async initialize({ reference, email, amountKobo, currency, callbackUrl, metadata, channels }) {
+  async initialize({ reference, email, amountKobo, currency = 'NGN', callbackUrl, metadata, channels, bankTransferExpiresAt }) {
+    const useBankTransfer = (Array.isArray(channels) && channels.includes('bank_transfer')) || metadata?.paymentMethod === 'paystack_bank_transfer';
+
+    if (useBankTransfer) {
+      const expiresAt = bankTransferExpiresAt || new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      const body = {
+        reference,
+        email,
+        amount: amountKobo,
+        currency: currency || 'NGN',
+        bank_transfer: {
+          account_expires_at: expiresAt,
+        },
+        metadata,
+      };
+
+      const { status, json } = await call('/charge', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+
+      if (status === 200 && json.status && json.data) {
+        const data = json.data;
+        return {
+          authorizationUrl: null,
+          accessCode: null,
+          reference: data.reference ?? reference,
+          transferInstructions: normalizePaystackTransferInstructions(data, { amountKobo, currency, reference, expiresAt }),
+          channel: 'bank_transfer',
+          raw: data,
+        };
+      }
+      throw new Error(`Paystack bank transfer initialization failed (${status}): ${json?.message || 'Unknown error'}`);
+    }
+
     const body = {
       reference,
       email,
@@ -46,6 +81,7 @@ export const paystackProvider = {
       authorizationUrl: data.authorization_url ?? null,
       accessCode: data.access_code ?? null,
       reference: data.reference ?? reference,
+      transferInstructions: normalizePaystackTransferInstructions(data, { amountKobo, currency, reference }),
       raw: data,
     };
   },
@@ -55,14 +91,27 @@ export const paystackProvider = {
     if (status === 404) return { status: 'not_found' };
     if (status !== 200 || !json.status) throw new Error(`Paystack verify failed (${status})`);
     const d = json.data;
-    const map = { success: 'success', failed: 'failed', abandoned: 'failed', reversed: 'failed', cancelled: 'failed', expired: 'failed' };
+    const createdAt = d.created_at ? new Date(d.created_at) : null;
+    const isRecent = createdAt && (Date.now() - createdAt.getTime() < 30 * 60 * 1000);
+    let mappedStatus = 'pending';
+    if (d.status === 'success') {
+      mappedStatus = 'success';
+    } else if (['failed', 'reversed', 'cancelled'].includes(d.status)) {
+      mappedStatus = 'failed';
+    } else if (d.status === 'abandoned' || d.status === 'expired') {
+      mappedStatus = isRecent ? 'pending' : 'failed';
+    } else {
+      mappedStatus = 'pending';
+    }
+
     return {
-      status: map[d.status] ?? 'pending',
+      status: mappedStatus,
       amountKobo: d.amount,
       currency: d.currency,
       transactionId: String(d.id),
       paidAt: d.paid_at ? new Date(d.paid_at) : undefined,
       channel: d.channel,
+      transferInstructions: normalizePaystackTransferInstructions(d),
       rawStatus: d.status,
       raw: d,
     };

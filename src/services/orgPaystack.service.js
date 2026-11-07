@@ -115,26 +115,28 @@ const pickDate = (...values) => {
  * Paystack responses can vary by integration/channel and account configuration; we only map
  * fields the provider actually returns and never fabricate account details.
  */
-export const normalizePaystackTransferInstructions = (data) => {
+export const normalizePaystackTransferInstructions = (data, fallback = {}) => {
   if (!data || typeof data !== 'object') return null;
   const auth = data.authorization && typeof data.authorization === 'object' ? data.authorization : {};
   const candidates = [data, auth, data.bank_transfer, data.transfer, auth.transfer].filter((v) => v && typeof v === 'object');
   const merged = Object.assign({}, ...candidates);
-  const bankName = pickString(merged.bank_name, merged.receiver_bank, merged.bank, merged.bankName);
+  const bankObj = (merged.bank && typeof merged.bank === 'object') ? merged.bank : {};
+  const bankName = pickString(merged.bank_name, merged.receiver_bank, bankObj.name, typeof merged.bank === 'string' ? merged.bank : undefined, merged.bankName);
   const accountName = pickString(merged.account_name, merged.receiver_name, merged.accountName, merged.receiver);
   const accountNumber = pickString(merged.account_number, merged.transfer_account, merged.accountNumber, merged.receiver_account_number);
-  const amountKobo = toKoboNumber(merged.amount ?? merged.transfer_amount ?? merged.requested_amount ?? data.amount);
-  const currency = pickString(merged.currency, data.currency)?.toUpperCase();
+  const amountKobo = toKoboNumber(merged.amount ?? merged.transfer_amount ?? merged.requested_amount ?? data.amount ?? fallback.amountKobo);
+  const currency = pickString(merged.currency, data.currency, fallback.currency, 'NGN')?.toUpperCase();
   const expiresAt = pickDate(
     merged.account_expires_at,
     merged.expires_at,
     merged.expiry,
     merged.expiry_date,
     merged.transfer_account_expires_at,
+    fallback.expiresAt,
   );
-  const transferReference = pickString(merged.transfer_reference, merged.reference, merged.transaction_reference);
+  const transferReference = pickString(merged.transfer_reference, merged.reference, merged.transaction_reference, fallback.reference);
   const displayText = pickString(merged.display_text, merged.message, merged.note, merged.description);
-  const channel = pickString(merged.channel, data.channel, auth.channel);
+  const channel = pickString(merged.channel, data.channel, auth.channel, 'bank_transfer');
 
   const hasUsefulField = Boolean(bankName || accountName || accountNumber || transferReference || displayText || expiresAt);
   if (!hasUsefulField) return null;
@@ -151,13 +153,18 @@ export const normalizePaystackTransferInstructions = (data) => {
   };
 };
 
-const mapProviderStatus = (status) => {
-  const map = { success: 'success', failed: 'failed', abandoned: 'failed', reversed: 'failed', cancelled: 'failed', expired: 'failed' };
-  return map[status] ?? 'pending';
+const mapProviderStatus = (status, createdAt) => {
+  if (status === 'success') return 'success';
+  if (status === 'failed' || status === 'reversed' || status === 'cancelled') return 'failed';
+  if (status === 'abandoned' || status === 'expired') {
+    const isRecent = createdAt && (Date.now() - new Date(createdAt).getTime() < 30 * 60 * 1000);
+    return isRecent ? 'pending' : 'failed';
+  }
+  return 'pending';
 };
 
 const normalizeTransaction = (data) => ({
-  status: mapProviderStatus(data?.status),
+  status: mapProviderStatus(data?.status, data?.created_at),
   amountKobo: data?.amount,
   currency: data?.currency,
   transactionId: data?.id != null ? String(data.id) : undefined,
@@ -169,7 +176,37 @@ const normalizeTransaction = (data) => ({
 });
 
 const realProvider = {
-  async initialize({ reference, email, amountKobo, currency, callbackUrl, subaccount, metadata, channels }) {
+  async initialize({ reference, email, amountKobo, currency = 'NGN', callbackUrl, subaccount, metadata, channels, bankTransferExpiresAt }) {
+    const useBankTransfer = (Array.isArray(channels) && channels.includes('bank_transfer')) || metadata?.paymentMethod === 'paystack_bank_transfer';
+
+    if (useBankTransfer) {
+      const expiresAt = bankTransferExpiresAt || new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      const body = {
+        reference,
+        email,
+        amount: amountKobo,
+        currency: currency || 'NGN',
+        bank_transfer: {
+          account_expires_at: expiresAt,
+        },
+        ...(subaccount ? { subaccount } : {}),
+        metadata,
+      };
+      const { status, json } = await call('/charge', { method: 'POST', body: JSON.stringify(body) });
+      if (status === 200 && json.status && json.data) {
+        const data = json.data;
+        return {
+          authorizationUrl: null,
+          accessCode: null,
+          reference: data.reference ?? reference,
+          transferInstructions: normalizePaystackTransferInstructions(data, { amountKobo, currency, reference, expiresAt }),
+          channel: 'bank_transfer',
+          raw: data,
+        };
+      }
+      throw new AppError(502, 'PAYMENT_INIT_FAILED', json?.message || 'Could not start the bank transfer payment.');
+    }
+
     const body = {
       reference,
       email,
@@ -189,7 +226,7 @@ const realProvider = {
       authorizationUrl: data.authorization_url ?? null,
       accessCode: data.access_code ?? null,
       reference: data.reference ?? reference,
-      transferInstructions: normalizePaystackTransferInstructions(data),
+      transferInstructions: normalizePaystackTransferInstructions(data, { amountKobo, currency, reference }),
       raw: data,
     };
   },

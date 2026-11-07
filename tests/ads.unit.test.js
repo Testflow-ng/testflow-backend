@@ -18,6 +18,7 @@ const content = await import('../src/utils/ads/content.js');
 const { rank, relevance } = await import('../src/utils/ads/ranker.js');
 const { optimizeAdImage } = await import('../src/services/ads/image.service.js');
 const { paystackProvider } = await import('../src/services/ads/payment/paystack.js');
+const { normalizePaystackTransferInstructions } = await import('../src/services/orgPaystack.service.js');
 const r2 = await import('../src/utils/r2.js');
 const { computeSchedule } = await import('../src/services/ads/moderation.service.js');
 
@@ -151,6 +152,26 @@ describe('payment webhook signature (paystack adapter)', () => {
   it('parses charge events', () => {
     assert.deepEqual(paystackProvider.parseWebhook(JSON.parse(body)), { type: 'charge.success', reference: 'ADS-1' });
     assert.equal(paystackProvider.parseWebhook({}), null);
+  });
+  it('normalizes paystack bank transfer charge responses with object bank and fallbacks', () => {
+    const chargeData = {
+      reference: 'TFS-123456',
+      status: 'pending_bank_transfer',
+      display_text: 'Please make a transfer',
+      account_name: 'PAYSTACK CHECKOUT',
+      account_number: '9983669362',
+      bank: { slug: 'titan-paystack', name: 'Paystack-Titan', id: 629 },
+      account_expires_at: '2026-11-07T08:00:00.000Z',
+      amount: 50000,
+    };
+    const norm = normalizePaystackTransferInstructions(chargeData, { currency: 'NGN' });
+    assert.equal(norm.bankName, 'Paystack-Titan');
+    assert.equal(norm.accountName, 'PAYSTACK CHECKOUT');
+    assert.equal(norm.accountNumber, '9983669362');
+    assert.equal(norm.amountKobo, 50000);
+    assert.equal(norm.currency, 'NGN');
+    assert.equal(norm.transferReference, 'TFS-123456');
+    assert.equal(norm.channel, 'bank_transfer');
   });
 });
 
