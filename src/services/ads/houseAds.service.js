@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { User } from '../../models/User.js';
+
 import { Campaign } from '../../models/Campaign.js';
 import { AdAsset } from '../../models/AdAsset.js';
 import { CampaignModeration } from '../../models/CampaignModeration.js';

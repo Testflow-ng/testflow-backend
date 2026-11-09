@@ -36,6 +36,7 @@ async function testLogic() {
     });
     console.log('✅ Request created in DB');
 
+    void request;
     // 2. Test Duplicate Hash Prevention
     console.log('\n2. Testing duplicate hash prevention...');
     try {
@@ -45,7 +46,7 @@ async function testLogic() {
         receiptHash: testHash // Same hash
       });
       console.error('❌ FAILED: Duplicate hash was allowed!');
-    } catch (e) {
+    } catch {
       console.log('✅ SUCCESS: Duplicate hash blocked by unique index.');
     }
 

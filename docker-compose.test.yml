@@ -1,0 +1,22 @@
+name: testflow-backend-test
+services:
+  mongo-test:
+    image: mongo:7.0
+    container_name: testflow-mongo-test
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27018:27017"
+    environment:
+      MONGO_INITDB_DATABASE: testflow_test
+    volumes:
+      - testflow_mongo_test_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  testflow_mongo_test_data:
+    name: testflow_mongo_test_data

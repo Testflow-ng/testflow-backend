@@ -5,7 +5,7 @@ import { OrgExam } from '../models/OrgExam.js';
 import { OrgPayment } from '../models/OrgPayment.js';
 import { OrgAttempt } from '../models/OrgAttempt.js';
 import { AppError } from '../utils/AppError.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { assertFeature } from './orgContent.service.js';
 import { getPlatformPercent } from './orgMoney.service.js';
 import {
@@ -106,6 +106,7 @@ const settle = async (payment, verified) => {
 
 /** Start (or resume) the checkout for one paid exam. */
 export const initializeExamCheckout = async (org, student, examId, { idempotencyKey = null } = {}) => {
+  await requireWritableSubscription(org._id);
   await requireStudio(org._id);
   // The tenant resolver returns a light organisation (name/slug/status), so the settlement details
   // come from a fresh read rather than the request's copy.
@@ -235,6 +236,7 @@ export const initializeExamCheckout = async (org, student, examId, { idempotency
 
 /** Re-check with the provider. Only a confirmed success marks the payment paid. */
 export const verifyExamPayment = async (orgId, studentId, reference) => {
+  await requireWritableSubscription(orgId);
   const payment = await OrgPayment.findOne({ organization: orgId, student: studentId, reference });
   if (!payment) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'That payment does not exist.');
   if (payment.status === 'paid') return { payment: paymentView(payment), access: true, duplicate: true };
@@ -288,6 +290,7 @@ export const handleOrgPaymentWebhook = async (rawBody, signature, body) => {
 
 /** Support-only refund. The provider call happens first, so a failed refund changes nothing. */
 export const refundOrgPayment = async (paymentId, reason = '') => {
+  await requireWritableSubscription((await OrgPayment.findById(paymentId))?.organization);
   const payment = await OrgPayment.findById(paymentId);
   if (!payment) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'That payment does not exist.');
   if (payment.status !== 'paid') throw new AppError(409, 'PAYMENT_NOT_REFUNDABLE', 'Only a paid payment can be refunded.');

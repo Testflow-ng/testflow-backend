@@ -201,6 +201,10 @@ const toSittingView = (attempt) => ({
     optionImages: (question.options ?? []).map((option) => option.imageUrl ?? null),
     topic: question.topic ?? '',
   })),
+  // For resuming an in-progress paper: restore the student's current selections without exposing answers/correctness.
+  answers: (attempt.answers ?? [])
+    .filter((a) => a?.selectedIndex !== null && a?.selectedIndex !== undefined)
+    .map((a) => ({ questionId: String(a.question), selectedIndex: a.selectedIndex })),
 });
 
 /** Whether the exam is closed, for `after_exam` corrections. Anytime exams close on unpublish. */
