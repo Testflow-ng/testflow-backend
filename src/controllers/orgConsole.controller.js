@@ -315,6 +315,9 @@ const consoleSubscription = (sub, planDef, pendingDef, entitlements) => ({
   graceEndsAt: sub.graceEndsAt ?? null,
   reference: sub.providerReference ?? null,
   provider: sub.provider ?? null,
+  trial: sub.isTrial && sub.trialEndsAt
+    ? { active: sub.status === 'active', endsAt: sub.trialEndsAt, daysLeft: Math.max(0, Math.ceil((new Date(sub.trialEndsAt).getTime() - Date.now()) / 86400000)) }
+    : null,
 });
 
 const planListItem = (p) => ({

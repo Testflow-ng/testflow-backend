@@ -13,6 +13,7 @@ import { RESERVED_SLUGS } from '../validators/everybody.schema.js';
 // Re-exported so the organization controller reaches every subscription-side helper through one
 // namespace (`orgs.subView`, `orgs.entitlementsFor`) instead of reaching into two services.
 import { entitlementsFor, ensureFreeSubscription } from './entitlements.js';
+import { grantTrialIfEligible } from './orgTrial.service.js';
 export { entitlementsFor, ensureFreeSubscription };
 
 
@@ -109,9 +110,11 @@ export const createOrganization = async (user, { name, slug, contactEmail, timez
     if (e?.code === 11000) throw new AppError(409, 'SUBDOMAIN_TAKEN', 'That subdomain is already taken.');
     throw e;
   }
+  // One free Studio trial per person; refused quietly (the organisation just stays on Free).
+  const trial = process.env.TRIAL_DISABLED === 'true' ? { granted: false, reason: 'disabled' } : await grantTrialIfEligible({ org, user, req });
   await recordAction({
     actorId: user._id, action: 'ORG_CREATE', targetId: org._id, targetType: 'Organization',
-    metadata: { slug: org.slug }, req,
+    metadata: { slug: org.slug, trial: trial.granted ? 'granted' : trial.reason }, req,
   });
   return org;
 };

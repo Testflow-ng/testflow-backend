@@ -13,6 +13,7 @@ const URI = process.env.MONGODB_URI_TEST;
 const skip = URI ? false : 'MONGODB_URI_TEST not set';
 
 process.env.NODE_ENV = 'test';
+process.env.TRIAL_DISABLED = 'true';
 process.env.RESEND_API_KEY = ''; // tests never send real email
 process.env.SMTP_HOST = '';
 process.env.ADS_JOBS_ENABLED = 'false';

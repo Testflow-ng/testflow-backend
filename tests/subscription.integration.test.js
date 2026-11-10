@@ -11,6 +11,7 @@ const URI = process.env.MONGODB_URI_TEST;
 const skip = URI ? false : 'MONGODB_URI_TEST not set';
 
 process.env.NODE_ENV = 'test';
+process.env.TRIAL_DISABLED = 'true';
 process.env.ADS_JOBS_ENABLED = 'false';
 // `checkout` deliberately refuses to mint a payment link without a provider key, so the suite
 // configures a dummy one rather than weakening that guard.

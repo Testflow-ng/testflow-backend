@@ -10,6 +10,7 @@
  *  - The webhook is signature-checked over the exact bytes and checks the amount before activating.
  */
 process.env.NODE_ENV = 'test';
+process.env.TRIAL_DISABLED = 'true';
 process.env.ADS_JOBS_ENABLED = 'false';
 process.env.CSRF_TOKEN_MODE = 'enforce';
 process.env.PAYSTACK_SECRET_KEY = 'sk_test_subscription_secret';

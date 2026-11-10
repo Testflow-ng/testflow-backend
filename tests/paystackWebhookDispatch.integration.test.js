@@ -5,6 +5,7 @@
  * and mocked Paystack provider only; no live credentials.
  */
 process.env.NODE_ENV = 'test';
+process.env.TRIAL_DISABLED = 'true';
 process.env.ADS_JOBS_ENABLED = 'false';
 process.env.CSRF_TOKEN_MODE = 'enforce';
 process.env.PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_test_dispatch_integration_only';

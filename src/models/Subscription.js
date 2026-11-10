@@ -38,6 +38,9 @@ const subscriptionSchema = new mongoose.Schema(
     currentPeriodStart: { type: Date, default: Date.now },
     // Null on Free, which never expires. Paid subscriptions always carry a date.
     currentPeriodEnd: { type: Date, default: null },
+    // A free Studio trial: Studio entitlements until `trialEndsAt`, then back to Free.
+    isTrial: { type: Boolean, default: false },
+    trialEndsAt: { type: Date },
     cancelAtPeriodEnd: { type: Boolean, default: false },
     pendingPlanKey: { type: String, enum: ['free', 'pro', 'studio'] },
     graceEndsAt: { type: Date },

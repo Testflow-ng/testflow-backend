@@ -84,7 +84,7 @@ const planOrThrow = async (planKey) => {
 
 const proratedAmount = (sub, targetPlan) => {
   const currentPrice = Number(sub.planSnapshot?.priceMinor ?? 0);
-  if (sub.status !== 'active' || !sub.currentPeriodEnd) return targetPlan.priceMinor;
+  if (sub.isTrial || sub.status !== 'active' || !sub.currentPeriodEnd) return targetPlan.priceMinor;
   const remainingMs = new Date(sub.currentPeriodEnd).getTime() - Date.now();
   if (remainingMs <= 0) return targetPlan.priceMinor;
   const daysLeft = remainingMs / (24 * 60 * 60 * 1000);
@@ -220,7 +220,7 @@ const activate = async (payment) => {
   if (!sub) throw new AppError(404, 'NOT_FOUND', 'Subscription not found.');
   const now = new Date();
   const isRenewalAfterActive =
-    payment.kind === 'renewal' && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > now.getTime();
+    payment.kind === 'renewal' && !sub.isTrial && sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > now.getTime();
   const endsAt = isRenewalAfterActive
     ? new Date(new Date(sub.currentPeriodEnd).getTime() + PERIOD_MS)
     : new Date(now.getTime() + PERIOD_MS);
@@ -235,6 +235,9 @@ const activate = async (payment) => {
   sub.currentPeriodStart = now;
   sub.currentPeriodEnd = endsAt;
   sub.pendingPlanKey = undefined;
+  // Paying ends the trial; the paid period starts from now.
+  sub.isTrial = false;
+  sub.trialEndsAt = undefined;
   sub.provider = 'paystack';
   sub.providerReference = payment.reference;
   sub.lastPaymentId = String(payment._id);

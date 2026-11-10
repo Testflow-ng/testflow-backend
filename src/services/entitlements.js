@@ -52,7 +52,13 @@ export async function ensureFreeSubscription(orgId) {
 export async function entitlementsFor(orgId) {
   const now = new Date();
   const rank = (k) => PLAN_KEYS.indexOf(k);
-  const actives = await Subscription.find({ organization: orgId, status: 'active' }).sort({ createdAt: -1 }).lean();
+  let actives = await Subscription.find({ organization: orgId, status: 'active' }).sort({ createdAt: -1 }).lean();
+  // A trial past its end is finished: close it so the organisation falls back to Free.
+  const over = actives.filter((a) => a.isTrial && a.trialEndsAt && new Date(a.trialEndsAt) <= now);
+  if (over.length) {
+    await Subscription.updateMany({ _id: { $in: over.map((o) => o._id) } }, { $set: { status: 'expired' } });
+    actives = actives.filter((a) => !over.includes(a));
+  }
   // A paid plan always outranks a Free row, whatever order they were created in.
   let best = actives.reduce((a, b) => (a && rank(a.planKey) >= rank(b.planKey) ? a : b), null);
   if (!best || best.planKey === 'free') {
@@ -85,6 +91,9 @@ export async function entitlementsFor(orgId) {
   return {
     planKey: effectivePlanKey,
     subscriptionStatus: sub.status ?? 'active',
+    trial: sub.isTrial && sub.trialEndsAt
+      ? { active: true, endsAt: sub.trialEndsAt, daysLeft: Math.max(0, Math.ceil((new Date(sub.trialEndsAt).getTime() - now.getTime()) / 86400000)) }
+      : null,
     adsEnabled: Boolean(merged.adsEnabled),
     maxExams: merged.maxExams ?? null,
     questionBanks: Boolean(merged.questionBanks),
