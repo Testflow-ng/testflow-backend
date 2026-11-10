@@ -34,6 +34,9 @@ const escapeHtml = (value = '') =>
  * Modern, clean, minimal transactional email layout inspired by Linear & Stripe.
  * Stark neutral canvas, sharp typography, robust table structure, zero noisy gradients.
  */
+// Email clients cannot show SVG or inline images, so the logo is a hosted PNG served by the web app.
+const LOGO_URL = `${config.EMAIL_ASSET_URL || config.CLIENT_URL}/brand/logo-email.png`;
+
 export const buildCleanEmailHtml = ({
   badge = 'Update',
   title,
@@ -47,7 +50,7 @@ export const buildCleanEmailHtml = ({
   const metadataBoxHtml = metadata && metadata.length > 0 ? `
     <tr>
       <td style="padding-bottom: 24px;">
-        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #fafafa; border: 1px solid #e4e4e7; border-radius: 8px; padding: 14px 18px;">
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f3f7ff; border: 1px solid #dbe6fb; border-radius: 10px; padding: 14px 18px;">
           ${metadata.map((row) => `
             <tr>
               <td style="font-size: 13px; color: #71717a; padding: 5px 0;">${escapeHtml(row.label)}</td>
@@ -66,8 +69,8 @@ export const buildCleanEmailHtml = ({
       <td style="padding-bottom: 28px;">
         <table border="0" cellspacing="0" cellpadding="0">
           <tr>
-            <td align="center" style="border-radius: 8px; background-color: #09090b;">
-              <a href="${ctaUrl}" target="_blank" style="font-size: 14px; font-weight: 600; color: #ffffff; text-decoration: none; padding: 11px 22px; border-radius: 8px; border: 1px solid #09090b; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+            <td align="center" style="border-radius: 10px; background-color: #2563eb;">
+              <a href="${ctaUrl}" target="_blank" style="font-size: 14px; font-weight: 600; color: #ffffff; text-decoration: none; padding: 11px 22px; border-radius: 10px; border: 1px solid #2563eb; display: inline-block; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
                 ${escapeHtml(ctaText)} &rarr;
               </a>
             </td>
@@ -106,6 +109,8 @@ export const buildCleanEmailHtml = ({
     <tr>
       <td align="center" style="padding: 36px 12px;">
         <table border="0" cellpadding="0" cellspacing="0" width="560" class="email-container" style="background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <!-- Brand accent -->
+          <tr><td style="height: 4px; background-color: #2563eb; font-size: 0; line-height: 0;">&nbsp;</td></tr>
           <!-- Top Minimal Header -->
           <tr>
             <td class="header-padding" style="padding: 28px 36px 20px 36px; border-bottom: 1px solid #f4f4f5;">
@@ -114,11 +119,11 @@ export const buildCleanEmailHtml = ({
                   <td align="left" valign="middle">
                     <table border="0" cellpadding="0" cellspacing="0">
                       <tr>
-                        <td style="width: 28px; height: 28px; background-color: #09090b; border-radius: 6px; text-align: center; vertical-align: middle;">
-                          <span style="color: #ffffff; font-size: 13px; font-weight: 800; font-family: -apple-system, BlinkMacSystemFont, sans-serif; line-height: 28px;">TF</span>
+                        <td valign="middle" style="width: 40px;">
+                          <img src="${LOGO_URL}" width="36" height="36" alt="Testflow" style="display: block; width: 36px; height: 36px;">
                         </td>
-                        <td style="padding-left: 10px;">
-                          <span style="font-size: 16px; font-weight: 700; letter-spacing: -0.4px; color: #09090b;">TestFlow</span>
+                        <td valign="middle" style="padding-left: 10px;">
+                          <span style="font-size: 19px; font-weight: 800; letter-spacing: -0.5px; color: #0f1d3d;">Testflow</span>
                         </td>
                       </tr>
                     </table>
@@ -156,7 +161,7 @@ export const buildCleanEmailHtml = ({
 
                 <tr>
                   <td style="border-top: 1px solid #f4f4f5; padding-top: 20px; font-size: 13px; color: #71717a; line-height: 20px;">
-                    ${footerNote || 'Have questions? Reach our team anytime at <a href="mailto:hello@testflow.com.ng" style="color: #09090b; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.'}
+                    ${footerNote || 'Have questions? Reach our team anytime at <a href="mailto:hello@testflow.com.ng" style="color: #2563eb; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.'}
                   </td>
                 </tr>
               </table>
@@ -168,8 +173,9 @@ export const buildCleanEmailHtml = ({
         <table border="0" cellpadding="0" cellspacing="0" width="560" class="email-container" style="margin-top: 20px;">
           <tr>
             <td align="center" style="padding: 0 20px; font-size: 12px; color: #a1a1aa; line-height: 18px;">
-              TestFlow Academic &bull; Timed practice and CBT excellence<br>
-              &copy; ${new Date().getFullYear()} TestFlow. All rights reserved.
+              <img src="${LOGO_URL}" width="22" height="22" alt="" style="display: inline-block; vertical-align: middle; margin-right: 6px;"><strong style="color: #52525b;">Testflow</strong><br>
+              Timed practice and CBT for students and organisations<br>
+              &copy; ${new Date().getFullYear()} Testflow. All rights reserved.
             </td>
           </tr>
         </table>
@@ -418,7 +424,7 @@ hello@testflow.com.ng`;
       ],
       ctaText: 'Open Dashboard',
       ctaUrl: dashboardUrl,
-      footerNote: `View your receipt online anytime in your <a href="${receiptUrl}" style="color: #09090b; font-weight: 500; text-decoration: underline;">billing settings</a>. Need help? Contact <a href="mailto:hello@testflow.com.ng" style="color: #09090b; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.`,
+      footerNote: `View your receipt online anytime in your <a href="${receiptUrl}" style="color: #09090b; font-weight: 500; text-decoration: underline;">billing settings</a>. Need help? Contact <a href="mailto:hello@testflow.com.ng" style="color: #2563eb; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.`,
     }),
   });
 };
@@ -488,7 +494,7 @@ hello@testflow.com.ng`;
       ],
       ctaText: 'Renew Subscription (₦500)',
       ctaUrl: billingUrl,
-      footerNote: `Prefer not to renew? No action is required — you will remain on our free tier. Questions? Contact <a href="mailto:hello@testflow.com.ng" style="color: #09090b; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.`,
+      footerNote: `Prefer not to renew? No action is required — you will remain on our free tier. Questions? Contact <a href="mailto:hello@testflow.com.ng" style="color: #2563eb; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.`,
     }),
   });
 };
@@ -538,7 +544,7 @@ hello@testflow.com.ng`;
       bodyHtml,
       ctaText: 'View on TestFlow',
       ctaUrl,
-      footerNote: `You received this announcement as an active member of TestFlow. Have questions? Reach out to <a href="mailto:hello@testflow.com.ng" style="color: #09090b; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.`,
+      footerNote: `You received this announcement as an active member of TestFlow. Have questions? Reach out to <a href="mailto:hello@testflow.com.ng" style="color: #2563eb; font-weight: 500; text-decoration: underline;">hello@testflow.com.ng</a>.`,
     }),
   });
 };
@@ -611,3 +617,40 @@ export const sendOrgStudentEmail = async ({ org, to, setupUrl, signInUrl }) =>
       : [`${org.name} added you as a student. Sign in with your existing account to see your exams.`],
     cta: setupUrl ? { label: 'Set your password', url: setupUrl } : { label: 'Sign in', url: signInUrl },
   });
+
+const naira = (kobo) => `\u20A6${(Number(kobo) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const WITHDRAWAL_COPY = {
+  requested: { badge: 'Withdrawal', title: 'We are sending your money', line: 'We received your withdrawal request and sent it to the bank. This usually takes a few minutes.', subject: 'Your withdrawal is on its way' },
+  success: { badge: 'Paid', title: 'Your withdrawal was successful', line: 'The money has been sent to your bank account. Some banks take a little while to show it.', subject: 'Your withdrawal was successful' },
+  failed: { badge: 'Failed', title: 'Your withdrawal did not go through', line: 'The money was not sent, and the full amount is back in your Testflow balance. You can try again.', subject: 'Your withdrawal did not go through' },
+};
+
+/** Tell an organisation's owner how a withdrawal is going: requested, success or failed. */
+export const sendWithdrawalEmail = async ({ to, name, orgName, kind, withdrawal }) => {
+  const copy = WITHDRAWAL_COPY[kind];
+  if (!to || !copy) return null;
+  const rows = [
+    { label: 'Amount withdrawn', value: naira(withdrawal.amountKobo) },
+    { label: 'Transfer fee', value: naira(withdrawal.feeKobo) },
+    { label: kind === 'failed' ? 'Would have received' : 'You receive', value: naira(withdrawal.netKobo), isGreen: kind === 'success' },
+    { label: 'Bank account', value: `${withdrawal.accountName ?? ''} ${withdrawal.accountNumber ? `(${String(withdrawal.accountNumber).slice(-4).padStart(10, '\u2022')})` : ''}`.trim() },
+    { label: 'Reference', value: withdrawal.reference, isCode: true },
+  ];
+  const reason = kind === 'failed' && withdrawal.failureReason ? `<p style="margin: 0 0 12px 0;">Reason: ${escapeHtml(withdrawal.failureReason)}</p>` : '';
+  return send({
+    to,
+    subject: copy.subject,
+    text: `${copy.title}. ${copy.line} Amount ${naira(withdrawal.amountKobo)}, reference ${withdrawal.reference}.`,
+    html: buildCleanEmailHtml({
+      badge: copy.badge,
+      title: copy.title,
+      preheader: copy.line,
+      bodyHtml: `<p style="margin: 0 0 12px 0;">Hi ${escapeHtml(name || 'there')},</p><p style="margin: 0 0 12px 0;">${escapeHtml(copy.line)}</p>${reason}`,
+      metadata: rows,
+      ctaText: 'Open earnings',
+      ctaUrl: `${config.CLIENT_URL}/workspace/payments`,
+      footerNote: `This is about <strong>${escapeHtml(orgName || 'your organisation')}</strong> on Testflow. If you did not request this withdrawal, contact <a href="mailto:hello@testflow.com.ng" style="color: #2563eb;">hello@testflow.com.ng</a> straight away.`,
+    }),
+  });
+};

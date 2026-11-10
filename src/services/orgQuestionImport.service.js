@@ -16,6 +16,8 @@ import { importQuestionRows } from './orgContent.service.js';
  */
 
 const MAX_CSV_BYTES = 10 * 1024 * 1024;
+/** Question pictures must stay small: phones load them mid-exam. */
+export const MAX_IMAGE_BYTES = 1024 * 1024;
 const REQUIRED_HEADERS = ['stem', 'options', 'correctIndex'];
 
 const HEADER_ALIASES = Object.freeze({
@@ -65,8 +67,11 @@ const csvRowsToEntries = (csvText) => {
 };
 
 const buildData = (record, resolveImage, { allowImages }) => {
-  const options = splitPipe(record.options);
-  const optionImageNames = splitPipe(record.optionImages);
+  // Positional: "a.png||c.png" gives option 1 and 3 a picture and leaves option 2 as text only.
+  const rawOptionImages = String(record.optionImages ?? '').split('|').map((part) => part.trim());
+  const optionImageNames = rawOptionImages.some(Boolean) ? rawOptionImages : [];
+  // With option pictures, an option may be a picture only (empty text), so keep the slots in place.
+  const options = optionImageNames.length ? String(record.options ?? '').split('|').map((part) => part.trim()) : splitPipe(record.options);
   const stemImage = String(record.stemImage ?? '').trim();
 
   if ((stemImage || optionImageNames.length) && !allowImages) {
@@ -79,7 +84,7 @@ const buildData = (record, resolveImage, { allowImages }) => {
       throw new AppError(422, 'VALIDATION_ERROR', 'optionImages must have one file name per option.');
     }
     optionImageNames.forEach((name, index) => {
-      optionImages[index] = resolveImage(name);
+      optionImages[index] = name ? resolveImage(name) : null;
     });
   }
 
@@ -98,15 +103,22 @@ const buildData = (record, resolveImage, { allowImages }) => {
 /**
  * @param {object} org the resolved organisation
  * @param {Buffer} buffer the uploaded file
- * @param {{ examId?: string, bankId?: string, dryRun?: boolean, actorId?: string }} options
+ * @param {{ examId?: string, bankId?: string, dryRun?: boolean, actorId?: string, extraImages?: Map<string, Buffer> }} options
+ *   `extraImages`: pictures sent beside a plain CSV (no archive); each is matched by its exact file name.
  */
-export const importQuestionsFile = async (org, buffer, { examId, bankId, dryRun = false, actorId } = {}) => {
+export const importQuestionsFile = async (org, buffer, { examId, bankId, dryRun = false, actorId, extraImages } = {}) => {
   if (!Buffer.isBuffer(buffer) || !buffer.length) throw new AppError(422, 'INVALID_UPLOAD', 'Send a CSV or ZIP file.');
   if (buffer.length > MAX_CSV_BYTES) throw new AppError(422, 'FILE_TOO_LARGE', 'Imports must be 10 MB or smaller.');
 
   const zipped = isZip(buffer);
   let csvText;
   let images = new Map();
+  const withPictures = extraImages instanceof Map && extraImages.size > 0;
+  if (withPictures) {
+    for (const [name, bytes] of extraImages) {
+      if (bytes.length > MAX_IMAGE_BYTES) throw new AppError(422, 'FILE_TOO_LARGE', `"${name}" is over 1 MB. Make the picture smaller.`);
+    }
+  }
 
   if (zipped) {
     images = readZipEntries(buffer);
@@ -115,24 +127,27 @@ export const importQuestionsFile = async (org, buffer, { examId, bankId, dryRun 
     csvText = csv.toString('utf8');
   } else {
     csvText = buffer.toString('utf8');
+    if (withPictures) images = extraImages;
   }
 
   const records = csvRowsToEntries(csvText);
   const entries = [];
   const failed = [];
+  const used = new Set();
 
   for (const { row, record } of records) {
     try {
       const resolveImage = (name) => {
+        used.add(name);
         const entry = images.get(name);
-        if (!entry) throw new AppError(422, 'IMAGE_NOT_FOUND', `"${name}" is not in the ZIP.`);
+        if (!entry) throw new AppError(422, 'IMAGE_NOT_FOUND', `"${name}" was not uploaded${zipped ? ' (it is not in the ZIP)' : ''}.`);
         return entry;
       };
       const data = buildData(record, (name) => {
         const entry = resolveImage(name);
         // Return the name here; storage happens once the row has passed every other check.
         return entry;
-      }, { allowImages: zipped });
+      }, { allowImages: zipped || withPictures });
 
       // Store (or, on a dry run, just decode) the referenced images before the row is accepted.
       const imagesToStore = [
@@ -156,16 +171,29 @@ export const importQuestionsFile = async (org, buffer, { examId, bankId, dryRun 
 
       // A null stemImageUrl is the same as "no image" to `assertQuestion`.
       if (!data.stemImageUrl) delete data.stemImageUrl;
-      const optionImages = data.optionImages.map((url) => (typeof url === 'string' && url.startsWith('dry-run-') ? null : url));
-      entries.push({ row, data: { ...data, optionImages } });
+      // On a dry run the `dry-run-…` markers stay: they make a picture-only option count as filled, and nothing is saved.
+      entries.push({ row, data });
     } catch (error) {
       failed.push({ row, problems: [error.message] });
     }
   }
 
+  // Every row failed before reaching the database: report them instead of a bare "no question rows".
+  if (!entries.length && failed.length) {
+    return {
+      format: zipped ? 'zip' : withPictures ? 'csv+images' : 'csv',
+      unusedImages: withPictures ? [...images.keys()].filter((name) => !used.has(name)) : [],
+      imported: 0,
+      valid: 0,
+      dryRun: Boolean(dryRun),
+      failed,
+    };
+  }
+
   const result = await importQuestionRows(org._id, entries, actorId, { examId, bankId, dryRun });
   return {
-    format: zipped ? 'zip' : 'csv',
+    format: zipped ? 'zip' : withPictures ? 'csv+images' : 'csv',
+    unusedImages: withPictures ? [...images.keys()].filter((name) => !used.has(name)) : [],
     imported: result.imported,
     valid: result.valid,
     dryRun: result.dryRun,

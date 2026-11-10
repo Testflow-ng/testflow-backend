@@ -31,3 +31,26 @@ export const singleImport = (field = 'file') => (req, res, next) =>
     }
     return next();
   });
+
+/**
+ * One CSV plus up to 60 pictures, all in memory. The ceiling is 1 MB per file, so a request can
+ * never hold more than about 61 MB; pictures are matched to CSV rows by file name (no archive).
+ */
+export const MAX_IMPORT_IMAGES = 60;
+const sheetWithImages = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1024 * 1024, files: MAX_IMPORT_IMAGES + 1, fields: 4 },
+});
+
+export const csvWithImages = (req, res, next) =>
+  sheetWithImages.fields([{ name: 'file', maxCount: 1 }, { name: 'images', maxCount: MAX_IMPORT_IMAGES }])(req, res, (err) => {
+    if (err) {
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      const code = tooBig ? 'FILE_TOO_LARGE' : 'INVALID_UPLOAD';
+      const message = tooBig
+        ? 'Each file must be 1 MB or smaller.'
+        : `Send one CSV in "file" and up to ${MAX_IMPORT_IMAGES} pictures in "images".`;
+      return next(new AppError(422, code, message));
+    }
+    return next();
+  });

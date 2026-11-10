@@ -482,6 +482,14 @@ export const orgPayoutSaveSchema = z.object({
     .strict(),
 });
 
+export const orgWithdrawalCreateSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  body: z.object({ amountKobo: z.number().int().positive().max(100_000_000_00) }).strict(),
+});
+export const orgWithdrawalListSchema = z.object({
+  params: z.object({ organizationId: objectId }).strict(),
+  query: z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) }).strict(),
+});
 export const orgEarningsSchema = z.object({ params: z.object({ organizationId: objectId }).strict() });
 
 export const orgPaymentsListSchema = z.object({

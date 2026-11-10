@@ -4,6 +4,7 @@ import { Organization } from '../models/Organization.js';
 import { OrgExam } from '../models/OrgExam.js';
 import { OrgPayment } from '../models/OrgPayment.js';
 import { OrgAttempt } from '../models/OrgAttempt.js';
+import { walletMode } from '../config/payoutMode.js';
 import { AppError } from '../utils/AppError.js';
 import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { assertFeature } from './orgContent.service.js';
@@ -48,7 +49,7 @@ const paymentView = (payment) => ({
 });
 
 const requirePayout = (org) => {
-  if (org?.payout?.status !== 'active' || !org?.payout?.subaccountCode) {
+  if (org?.payout?.status !== 'active' || (!walletMode() && !org?.payout?.subaccountCode)) {
     throw new AppError(422, 'PAYOUT_REQUIRED', 'Add an active payout account before charging for exams.');
   }
 };
@@ -187,6 +188,8 @@ export const initializeExamCheckout = async (org, student, examId, { idempotency
     platformPercent: percent,
     platformFeeKobo,
     orgShareKobo: Math.max(0, exam.priceMinor - platformFeeKobo),
+    // In wallet mode the money lands in Testflow's balance and the organisation withdraws its share.
+    settledTo: walletMode() ? 'wallet' : 'subaccount',
     status: 'initialized',
     // Omit the key entirely when absent: a unique+sparse index still indexes an explicit null.
     ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -210,7 +213,8 @@ export const initializeExamCheckout = async (org, student, examId, { idempotency
       amountKobo: payment.grossKobo,
       currency: payment.currency,
       callbackUrl,
-      subaccount: payer.payout.subaccountCode,
+      // Direct mode: Paystack splits at source, Testflow's percent stays in Testflow's balance and the rest settles to the org's bank.
+      ...(walletMode() ? {} : { subaccount: payer.payout.subaccountCode }),
       metadata: {
         kind: 'org_exam',
         organizationId: String(org._id),

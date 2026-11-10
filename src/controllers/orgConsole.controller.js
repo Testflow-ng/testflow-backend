@@ -1,7 +1,9 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { AppError } from '../utils/AppError.js';
 import * as content from '../services/orgContent.service.js';
 import * as questionImport from '../services/orgQuestionImport.service.js';
 import * as money from '../services/orgMoney.service.js';
+import * as withdrawals from '../services/orgWithdrawal.service.js';
 import * as domains from '../services/orgDomain.service.js';
 import * as site from '../services/orgSite.service.js';
 import * as students from '../services/orgStudents.service.js';
@@ -137,6 +139,25 @@ export const importQuestions = asyncHandler(async (req, res) => {
   res.status(result.dryRun ? 200 : 201).json(result);
 });
 
+/** POST .../questions/import/with-images — a plain CSV plus pictures, matched by file name. */
+export const importQuestionsWithImages = asyncHandler(async (req, res) => {
+  const extraImages = new Map();
+  for (const file of req.files?.images ?? []) {
+    const name = String(file.originalname ?? '').split(/[\\/]/).pop().trim();
+    if (!name) continue;
+    if (extraImages.has(name)) throw new AppError(422, 'DUPLICATE_IMAGE', `Two pictures are named "${name}". Rename one.`);
+    extraImages.set(name, file.buffer);
+  }
+  const result = await questionImport.importQuestionsFile(req.org, req.files?.file?.[0]?.buffer, {
+    examId: req.query.examId,
+    bankId: req.query.bankId,
+    dryRun: req.query.dryRun,
+    actorId: req.user._id,
+    extraImages,
+  });
+  res.status(result.dryRun ? 200 : 201).json(result);
+});
+
 /** GET .../questions/import/template — the exact CSV the importer expects. */
 export const downloadQuestionTemplate = asyncHandler(async (_req, res) => {
   res.set('Content-Type', 'text/csv; charset=utf-8');
@@ -220,6 +241,21 @@ export const savePayout = asyncHandler(async (req, res) => {
   const payout = await money.savePayout(req.org, req.body);
   await recordAction({ actorId: req.user._id, action: 'ORG_PAYOUT_SAVE', targetId: req.org._id, targetType: 'Organization', metadata: { bankCode: req.body.bankCode }, req });
   res.json({ payout });
+});
+
+/** GET .../wallet — the balance an organisation can withdraw, and what is on its way. */
+export const getWallet = asyncHandler(async (req, res) => {
+  res.json({ wallet: await withdrawals.getWallet(req.org._id) });
+});
+
+/** GET .../withdrawals — past and in-flight withdrawals, newest first. */
+export const listWithdrawals = asyncHandler(async (req, res) => {
+  res.json(await withdrawals.listWithdrawals(req.org._id, req.query));
+});
+
+/** POST .../withdrawals — move money from the wallet to the saved bank account. Owner only. */
+export const createWithdrawal = asyncHandler(async (req, res) => {
+  res.status(201).json({ withdrawal: await withdrawals.requestWithdrawal(req.org._id, req.user._id, req.body) });
 });
 
 export const getEarnings = asyncHandler(async (req, res) => {

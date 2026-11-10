@@ -51,6 +51,48 @@ export const resolvePaystackAccount = async ({ bankCode, accountNumber }) => {
   return { accountName: json.data.account_name };
 };
 
+let transferOverride = null;
+/** Tests swap the transfer calls for a fake so nothing reaches Paystack. */
+export const setTransferProviderForTests = (fake) => { transferOverride = fake; };
+export const transfersAvailable = () => Boolean(transferOverride) || paystackConfigured();
+
+/** Register a bank account as a transfer destination. Paystack returns the same recipient for the same account. */
+export const createTransferRecipient = async ({ name, bankCode, accountNumber }) => {
+  if (transferOverride) return transferOverride.createRecipient({ name, bankCode, accountNumber });
+  requireConfigured();
+  const { status, json } = await call('/transferrecipient', {
+    method: 'POST',
+    body: JSON.stringify({ type: 'nuban', name, account_number: accountNumber, bank_code: bankCode, currency: 'NGN' }),
+  });
+  if ((status !== 200 && status !== 201) || !json.status || !json.data?.recipient_code) {
+    throw new AppError(502, 'RECIPIENT_FAILED', json?.message || 'Could not set up the bank account for withdrawals.');
+  }
+  return { recipientCode: json.data.recipient_code };
+};
+
+/** Send money from Testflow's Paystack balance to a recipient. `reference` makes a retry safe. */
+export const initiateTransfer = async ({ reference, amountKobo, recipientCode, reason }) => {
+  if (transferOverride) return transferOverride.transfer({ reference, amountKobo, recipientCode, reason });
+  requireConfigured();
+  const { status, json } = await call('/transfer', {
+    method: 'POST',
+    body: JSON.stringify({ source: 'balance', amount: amountKobo, recipient: recipientCode, reference, reason, currency: 'NGN' }),
+  });
+  if ((status !== 200 && status !== 201) || !json.status) {
+    throw new AppError(502, 'TRANSFER_FAILED', json?.message || 'The transfer could not be started.');
+  }
+  return { transferCode: json.data?.transfer_code ?? null, status: String(json.data?.status ?? 'pending') };
+};
+
+/** Whether a webhook body really came from Paystack (same HMAC check the payment webhook uses). */
+export const verifyPaystackSignature = (rawBody, signature) => {
+  if (!rawBody || !signature || !config.PAYSTACK_SECRET_KEY) return false;
+  const expected = crypto.createHmac('sha512', config.PAYSTACK_SECRET_KEY).update(rawBody).digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(String(signature));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
 /**
  * Create the subaccount the first time, update it afterwards. `percentage_charge` is Testflow's
  * share and is set here from the server-side number, never from the client.

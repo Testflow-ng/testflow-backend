@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Organization } from '../models/Organization.js';
 import { OrgPayment } from '../models/OrgPayment.js';
 import { Settings } from '../models/Settings.js';
+import { payoutMode } from '../config/payoutMode.js';
 import { AppError } from '../utils/AppError.js';
 import { paystackConfigured, listPaystackBanks, resolvePaystackAccount, upsertPaystackSubaccount } from './orgPaystack.service.js';
 import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
@@ -81,6 +82,8 @@ export const toPayoutView = (payout, platformPercent = null) => ({
   accountName: payout?.accountName ?? null,
   businessName: payout?.businessName ?? null,
   status: payout?.status ?? 'none',
+  // 'direct': paid straight to the bank by Paystack. 'wallet': held by Testflow until withdrawn.
+  mode: payoutMode(),
   subaccountCode: payout?.subaccountCode ?? null,
   // The live setting wins over an old row; the stored value is only a fallback for old records.
   platformPercent: platformPercent ?? payout?.platformPercent ?? DEFAULT_PLATFORM_PERCENT,
@@ -127,6 +130,8 @@ export const savePayout = async (org, { bankCode, accountNumber, businessName })
           businessName: businessName ?? org.name,
           status: 'active',
           subaccountCode: sub.subaccountCode,
+          // A new bank account needs a new transfer recipient; withdrawals create it on first use.
+          transferRecipientCode: null,
           platformPercent: percent,
         },
       },

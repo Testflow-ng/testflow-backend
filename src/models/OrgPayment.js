@@ -25,6 +25,9 @@ const orgPaymentSchema = new mongoose.Schema(
     orgShareKobo: { type: Number, default: 0, min: 0 },
     paystackFeeKobo: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ORG_PAYMENT_STATUSES, default: 'initialized' },
+    // Where the organisation's share goes: 'wallet' is held by Testflow until the organisation withdraws it;
+    // 'subaccount' (older rows) was settled straight to its bank by Paystack and never counts toward the wallet.
+    settledTo: { type: String, enum: ['subaccount', 'wallet'], default: 'subaccount' },
     provider: { type: String, default: 'paystack' },
     providerTransactionId: { type: String, trim: true, default: null },
     // The percentage the split was settled at. A later platform-setting change never rewrites it.

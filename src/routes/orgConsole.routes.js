@@ -3,7 +3,7 @@ import * as org from '../controllers/orgConsole.controller.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireOrgRole } from '../middleware/requireOrgRole.js';
-import { singleImage, singleImport } from '../middleware/uploadImage.js';
+import { csvWithImages, singleImage, singleImport } from '../middleware/uploadImage.js';
 import { sharedRateLimit } from '../middleware/rateLimit.js';
 import {
   orgExamListSchema,
@@ -43,6 +43,8 @@ import {
   orgPayoutVerifySchema,
   orgPayoutSaveSchema,
   orgEarningsSchema,
+  orgWithdrawalCreateSchema,
+  orgWithdrawalListSchema,
   orgPaymentsListSchema,
   orgDomainListSchema,
   checkSubdomainSchema,
@@ -129,6 +131,15 @@ router.post(
   org.importQuestions,
 );
 router.post(
+  '/organizations/:organizationId/questions/import/with-images',
+  authenticate,
+  validate(orgQuestionImportSchema),
+  staff,
+  imageLimit,
+  csvWithImages,
+  org.importQuestionsWithImages,
+);
+router.post(
   '/organizations/:organizationId/questions/assets',
   authenticate,
   validate(orgQuestionAssetsSchema),
@@ -176,6 +187,11 @@ router.delete('/organizations/:organizationId/library/books/:bookId', authentica
 
 router.post('/organizations/:organizationId/payout/verify', authenticate, validate(orgPayoutVerifySchema), staff, org.verifyPayout);
 router.put('/organizations/:organizationId/payout', authenticate, validate(orgPayoutSaveSchema), staff, org.savePayout);
+const ownerOnly = requireOrgRole('owner');
+const withdrawLimit = sharedRateLimit({ name: 'org-withdrawal', windowMs: 60_000, max: 5, key: (req) => String(req.user?._id ?? req.ip) });
+router.get('/organizations/:organizationId/wallet', authenticate, validate(orgEarningsSchema), staff, org.getWallet);
+router.get('/organizations/:organizationId/withdrawals', authenticate, validate(orgWithdrawalListSchema), staff, org.listWithdrawals);
+router.post('/organizations/:organizationId/withdrawals', authenticate, validate(orgWithdrawalCreateSchema), ownerOnly, withdrawLimit, org.createWithdrawal);
 router.get('/organizations/:organizationId/earnings', authenticate, validate(orgEarningsSchema), staff, org.getEarnings);
 router.get('/organizations/:organizationId/payments', authenticate, validate(orgPaymentsListSchema), staff, org.listPayments);
 

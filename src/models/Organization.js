@@ -18,6 +18,8 @@ const payoutSchema = new mongoose.Schema(
     businessName: { type: String, trim: true },
     status: { type: String, enum: PAYOUT_STATUSES, default: 'none' },
     subaccountCode: { type: String, trim: true },
+    // Paystack's id for this bank account as a transfer destination, so withdrawals can pay out to it.
+    transferRecipientCode: { type: String, trim: true },
     platformPercent: { type: Number, default: 5, min: 0, max: 100 },
   },
   { _id: false },
@@ -32,6 +34,8 @@ const organizationSchema = new mongoose.Schema(
     contactEmail: { type: String, lowercase: true, trim: true, maxlength: 254 },
     timezone: { type: String, trim: true, maxlength: 64, default: 'Africa/Lagos' },
     payout: { type: payoutSchema, default: () => ({}) },
+    // Short lease taken while a withdrawal is being checked, so two taps cannot spend the same balance.
+    withdrawLockUntil: { type: Date, default: null },
   },
   { timestamps: true },
 );

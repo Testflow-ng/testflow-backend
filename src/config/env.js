@@ -22,6 +22,8 @@ const schema = z.object({
   SMTP_PORT: z.preprocess((val) => (val === '' ? undefined : val), z.coerce.number().int().positive().optional()),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+  // Where the web app's /brand/ images are served for emails; falls back to CLIENT_URL.
+  EMAIL_ASSET_URL: z.preprocess((v) => (v === '' ? undefined : (typeof v === 'string' ? v.replace(/\/+$/, '') : v)), z.string().url().optional()),
   EMAIL_FROM: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
   RESEND_API_KEY: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
 

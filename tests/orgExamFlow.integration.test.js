@@ -161,7 +161,7 @@ describe('Everybody step 2 — exams, results and the tenant sitting flow (integ
       verifyWebhookSignature: (rawBody, signature) => signature === fakeState.signature,
     };
     setOrgPaystackForTests({
-      initialize: async ({ reference }) => ({ authorizationUrl: `https://pay.test/${reference}` }),
+      initialize: async ({ reference, subaccount }) => { fakeState.lastSubaccount = subaccount; return { authorizationUrl: `https://pay.test/${reference}` }; },
       verify: async (reference) => (fakeState.paid.has(reference)
         ? { status: 'success', amountKobo: fakeState.amountKobo, currency: 'NGN', transactionId: `tx_${reference}`, paidAt: new Date() }
         : { status: 'pending' }),
@@ -407,6 +407,10 @@ describe('Everybody step 2 — exams, results and the tenant sitting flow (integ
     assert.equal(checkout.status, 201, JSON.stringify(checkout.json));
     assert.equal(checkout.json.amountKobo, 50_000);
     assert.ok(checkout.json.authorizationUrl);
+    // Direct mode: the payment carries the organisation's subaccount, so Paystack splits it at source.
+    assert.equal(fakeState.lastSubaccount, 'ACCT_test');
+    const { OrgPayment: PaidRow } = await import('../src/models/OrgPayment.js');
+    assert.equal((await PaidRow.findOne({ reference: checkout.json.reference }).lean()).settledTo, 'subaccount');
 
     // The provider confirms this reference, then the student re-checks.
     fakeState.amountKobo = 50_000;
@@ -525,6 +529,114 @@ describe('Everybody step 2 — exams, results and the tenant sitting flow (integ
     const template = await c.callRaw('GET', `/api/v1/everybody/organizations/${org.id}/questions/import/template`);
     assert.equal(template.status, 200);
     assert.match(await template.text(), /^stem,options,correctIndex/);
+  });
+
+  it('CSV + pictures import over HTTP: matched by name, 1 MB cap, and the picture limits are enforced', async () => {
+    const { c } = await registerLogin();
+    const org = await mkOrg(c);
+    const url = (q = '') => `/api/v1/everybody/organizations/${org.id}/questions/import/with-images${q}`;
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({ create: { width: 30, height: 30, channels: 3, background: '#6b5bd2' } }).png().toBuffer();
+    const csvText = ['stem,options,correctIndex,stemImage,optionImages', '"Which shape?","A|B",0,q1.png,""', '"Missing one","A|B",0,nope.png,""', ''].join('\r\n');
+    const form = (images, csv = csvText) => {
+      const f = new FormData();
+      f.append('file', new Blob([csv], { type: 'text/csv' }), 'questions.csv');
+      images.forEach(([name, bytes]) => f.append('images', new Blob([bytes], { type: 'image/png' }), name));
+      return f;
+    };
+
+    const ok = await c.callRaw('POST', url('?dryRun=true'), { body: form([['q1.png', png], ['spare.png', png]]) });
+    assert.equal(ok.status, 200);
+    const json = await ok.json();
+    assert.equal(json.format, 'csv+images');
+    assert.equal(json.valid, 1);
+    assert.equal(json.failed.length, 1);
+    assert.match(json.failed[0].problems[0], /nope\.png/);
+    assert.deepEqual(json.unusedImages, ['spare.png']);
+
+    const big = await c.callRaw('POST', url('?dryRun=true'), { body: form([['q1.png', Buffer.alloc(1024 * 1024 + 10, 1)]]) });
+    assert.equal(big.status, 422);
+    assert.equal((await big.json()).error?.code ?? 'FILE_TOO_LARGE', 'FILE_TOO_LARGE');
+
+    const many = await c.callRaw('POST', url('?dryRun=true'), { body: form(Array.from({ length: 61 }, (_x, i) => [`p${i}.png`, png])) });
+    assert.equal(many.status, 422);
+
+    const dup = await c.callRaw('POST', url('?dryRun=true'), { body: form([['q1.png', png], ['q1.png', png]]) });
+    assert.equal(dup.status, 422);
+
+    const anon = await client().callRaw('POST', url('?dryRun=true'), { body: form([['q1.png', png]]) });
+    assert.ok([401, 403].includes(anon.status));
+  });
+
+  it('wallet: only wallet payments count, withdrawals are checked, and the transfer webhook settles them once', async () => {
+    const { c } = await registerLogin();
+    const org = await mkOrg(c);
+    await activatePayout(org.id);
+    const { Organization } = await import('../src/models/Organization.js');
+    await Organization.updateOne({ _id: org.id }, { $set: { 'payout.bankCode': '058', 'payout.accountNumber': '0123456789' } });
+    const { OrgPayment } = await import('../src/models/OrgPayment.js');
+    const { setTransferProviderForTests } = await import('../src/services/orgPaystack.service.js');
+    const { setPayoutModeForTests } = await import('../src/config/payoutMode.js');
+    setPayoutModeForTests('wallet'); // production runs 'direct'; this test covers the wallet flow
+    const mk = (over) => OrgPayment.create({ organization: org.id, item: 'exam', reference: `TW-${uniq()}`, grossKobo: 1_000_000, orgShareKobo: 950_000, platformFeeKobo: 50_000, status: 'paid', paidAt: new Date(), ...over });
+    await mk({ settledTo: 'wallet' }); // N9,500 counts
+    await mk({}); // older subaccount payment: already in their bank, must not count
+    await mk({ settledTo: 'wallet', status: 'refunded' }); // refunded: must not count
+
+    const calls = [];
+    setTransferProviderForTests({
+      createRecipient: async () => ({ recipientCode: 'RCP_test' }),
+      transfer: async (args) => { calls.push(args); return { transferCode: 'TRF_test', status: 'pending' }; },
+    });
+    const api = `/api/v1/everybody/organizations/${org.id}`;
+    try {
+      const w0 = await c.call('GET', `${api}/wallet`);
+      assert.equal(w0.status, 200);
+      assert.equal(w0.json.wallet.availableKobo, 950_000);
+
+      assert.equal((await c.call('POST', `${api}/withdrawals`, { body: { amountKobo: 50_000 } })).status, 422); // under N1,000
+      assert.equal((await c.call('POST', `${api}/withdrawals`, { body: { amountKobo: 1_000_000 } })).status, 422); // more than the balance
+
+      const ok = await c.call('POST', `${api}/withdrawals`, { body: { amountKobo: 400_000 } });
+      assert.equal(ok.status, 201, JSON.stringify(ok.json));
+      const w = ok.json.withdrawal;
+      assert.equal(w.status, 'processing');
+      assert.equal(w.feeKobo, 1000); // N10 up to N5,000
+      assert.equal(w.netKobo, 399_000);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].amountKobo, 399_000);
+      assert.equal(calls[0].recipientCode, 'RCP_test');
+
+      const w1 = await c.call('GET', `${api}/wallet`);
+      assert.equal(w1.json.wallet.availableKobo, 550_000);
+      assert.equal(w1.json.wallet.pendingKobo, 400_000);
+
+      const sign = (raw) => crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(raw).digest('hex');
+      const hook = (event, reason) => {
+        const raw = JSON.stringify({ event, data: { reference: w.reference, reason } });
+        return fetch(`${base}/api/webhooks/paystack`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-paystack-signature': sign(raw) }, body: raw });
+      };
+      const bad = await fetch(`${base}/api/webhooks/paystack`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-paystack-signature': 'nope' }, body: JSON.stringify({ event: 'transfer.success', data: { reference: w.reference } }) });
+      assert.equal(bad.status, 401);
+
+      assert.equal((await hook('transfer.success')).status, 200);
+      assert.equal((await hook('transfer.success')).status, 200); // twice is fine
+      let list = await c.call('GET', `${api}/withdrawals`);
+      assert.equal(list.json.items[0].status, 'success');
+      assert.equal((await c.call('GET', `${api}/wallet`)).json.wallet.withdrawnKobo, 400_000);
+
+      // A second withdrawal that the bank later rejects gives the money back.
+      const second = (await c.call('POST', `${api}/withdrawals`, { body: { amountKobo: 300_000 } })).json.withdrawal;
+      assert.equal((await c.call('GET', `${api}/wallet`)).json.wallet.availableKobo, 250_000);
+      const raw = JSON.stringify({ event: 'transfer.failed', data: { reference: second.reference, reason: 'Account closed' } });
+      await fetch(`${base}/api/webhooks/paystack`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-paystack-signature': sign(raw) }, body: raw });
+      assert.equal((await c.call('GET', `${api}/wallet`)).json.wallet.availableKobo, 550_000);
+      list = await c.call('GET', `${api}/withdrawals`);
+      assert.equal(list.json.items[0].status, 'failed');
+    } finally {
+      setTransferProviderForTests(null);
+      setPayoutModeForTests('direct');
+    }
   });
 
   it('image quota is enforced per organisation before the object store is touched', async () => {

@@ -3,6 +3,7 @@ import { Organization } from '../models/Organization.js';
 import { OrgMembership } from '../models/OrgMembership.js';
 import { OrgInvitation } from '../models/OrgInvitation.js';
 import { Subscription } from '../models/Subscription.js';
+import { payoutMode } from '../config/payoutMode.js';
 import { AppError } from '../utils/AppError.js';
 import { scoped } from '../utils/orgScope.js';
 import { generateToken, hashToken } from '../utils/tokens.js';
@@ -44,6 +45,8 @@ export const orgView = (org) => ({
     businessName: org.payout?.businessName ?? null,
     status: org.payout?.status ?? 'none',
     subaccountCode: org.payout?.subaccountCode ?? null,
+    // 'direct': paid straight to the bank by Paystack. 'wallet': held by Testflow until the owner withdraws.
+    mode: payoutMode(),
     platformPercent: org.payout?.platformPercent ?? 5,
   },
   createdAt: org.createdAt ?? null,
