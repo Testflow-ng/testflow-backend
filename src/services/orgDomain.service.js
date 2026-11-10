@@ -69,6 +69,11 @@ export const addDomain = async (org, { type, hostname }) => {
     if (!available.available) throw new AppError(409, 'SUBDOMAIN_TAKEN', available.reason ?? 'That name is taken.');
 
     const created = await OrgDomain.create({ organization: org._id, hostname: host, type, status: 'active', verifiedAt: new Date() });
+    // An organisation has one free address: choosing a new one replaces the old, which stops working.
+    await OrgDomain.updateMany(
+      { organization: org._id, type: 'subdomain', _id: { $ne: created._id }, status: { $ne: 'removed' } },
+      { $set: { status: 'removed' } },
+    );
     return toDomainView(created.toObject());
   }
 

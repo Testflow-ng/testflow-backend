@@ -149,7 +149,10 @@ export const findSiteByHostname = async (hostname) => {
   if (!orgId && host.endsWith('.testflow.com.ng')) {
     const slug = host.slice(0, -'.testflow.com.ng'.length);
     const org = await Organization.findOne({ slug, status: 'active' }).select('_id').lean();
-    orgId = org?._id ?? null;
+    // The sign-up name only works until the owner picks an address of their own; after that the old
+    // one is retired (a replaced address must stop opening the site).
+    const picked = org ? await OrgDomain.exists({ organization: org._id, type: 'subdomain' }) : null;
+    orgId = org && !picked ? org._id : null;
   }
   if (!orgId) return null;
 
