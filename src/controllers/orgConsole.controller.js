@@ -329,7 +329,13 @@ const planListItem = (p) => ({
 });
 
 export const getSubscription = asyncHandler(async (req, res) => {
-  const latest = await Subscription.findOne({ organization: req.org._id }).sort({ createdAt: -1 }).lean();
+  // Resolve entitlements first: it repairs a paid-but-not-activated subscription before we read it.
+  await entitlements.entitlementsFor(req.org._id);
+  const rows = await Subscription.find({ organization: req.org._id }).sort({ createdAt: -1 }).lean();
+  const rank = (k) => ['free', 'pro', 'studio'].indexOf(k);
+  const actives = rows.filter((r) => r.status === 'active');
+  // The plan being used wins: the best active row, else the newest row of any status.
+  const latest = actives.length ? actives.reduce((a, b) => (rank(a.planKey) >= rank(b.planKey) ? a : b)) : rows[0];
   // Every organisation has a plan: the Free default is created on demand for older records.
   const sub = latest ?? (await entitlements.ensureFreeSubscription(req.org._id));
   const [planDef, pendingDef, ent] = await Promise.all([

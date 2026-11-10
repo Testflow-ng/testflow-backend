@@ -51,8 +51,21 @@ export async function ensureFreeSubscription(orgId) {
  */
 export async function entitlementsFor(orgId) {
   const now = new Date();
+  const rank = (k) => PLAN_KEYS.indexOf(k);
+  const actives = await Subscription.find({ organization: orgId, status: 'active' }).sort({ createdAt: -1 }).lean();
+  // A paid plan always outranks a Free row, whatever order they were created in.
+  let best = actives.reduce((a, b) => (a && rank(a.planKey) >= rank(b.planKey) ? a : b), null);
+  if (!best || best.planKey === 'free') {
+    try {
+      const { healPaidSubscription } = await import('./orgSubscription.service.js');
+      const healed = await healPaidSubscription(orgId);
+      if (healed) best = healed.toObject();
+    } catch {
+      // Healing must never break a request.
+    }
+  }
   const sub =
-    (await Subscription.findOne({ organization: orgId, status: 'active' }).sort({ createdAt: -1 }).lean()) ??
+    best ??
     (await Subscription.findOne({ organization: orgId, status: 'past_due', graceEndsAt: { $gt: now } })
       .sort({ createdAt: -1 })
       .lean()) ??

@@ -243,6 +243,31 @@ const activate = async (payment) => {
   return sub;
 };
 
+/**
+ * Safety net for "paid but still on Free". A payment is marked paid before the subscription is
+ * changed, so a failure in between (or an old build) leaves money taken and the plan unchanged.
+ * This finds the organisation's latest paid payment still inside its 30-day period and, when the
+ * subscription does not already reflect it, runs the activation again. Safe to call repeatedly.
+ */
+export const healPaidSubscription = async (organizationId) => {
+  const since = new Date(Date.now() - PERIOD_MS);
+  const payment = await SubscriptionPayment.findOne({
+    organization: organizationId,
+    status: 'paid',
+    planKey: { $ne: 'free' },
+    paidAt: { $gte: since },
+  }).sort({ paidAt: -1 });
+  if (!payment) return null;
+  const sub = await Subscription.findById(payment.subscription);
+  if (sub && sub.status === 'active' && sub.planKey === payment.planKey && sub.lastPaymentId === String(payment._id)) return null;
+  // A later payment already moved the subscription on (renewal/upgrade): nothing to repair.
+  if (sub && sub.lastPaymentId && sub.lastPaymentId !== String(payment._id)) {
+    const last = await SubscriptionPayment.findById(sub.lastPaymentId).lean();
+    if (last && last.paidAt && payment.paidAt && new Date(last.paidAt) >= new Date(payment.paidAt) && sub.status === 'active') return null;
+  }
+  return activate(payment);
+};
+
 const settlePaid = async (payment, { amountKobo, currency, paidAt, transferInstructions, channel, transactionId }) => {
   if (Number(amountKobo) !== Number(payment.amountKobo) || String(currency).toUpperCase() !== String(payment.currency).toUpperCase()) {
     payment.status = 'failed';
@@ -265,6 +290,7 @@ const settlePaid = async (payment, { amountKobo, currency, paidAt, transferInstr
   );
   if (!claimed) {
     const current = await SubscriptionPayment.findById(payment._id);
+    await healPaidSubscription(payment.organization).catch(() => null);
     const sub = await Subscription.findById(payment.subscription);
     return { status: 'paid', duplicate: true, payment: current, subscription: sub };
   }
@@ -374,6 +400,7 @@ export const getSubscriptionPaymentStatus = async (userId, { orgId, reference, r
   if (orgId) assertPaymentInOrg(payment, orgId);
 
   if (payment.status === 'paid') {
+    await healPaidSubscription(payment.organization).catch(() => null);
     const sub = await Subscription.findById(payment.subscription);
     return { status: 'paid', duplicate: true, payment, subscription: sub, refreshed: false };
   }

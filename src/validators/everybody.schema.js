@@ -104,15 +104,15 @@ export const acceptInviteSchema = z.object({
 const siteBlockList = z.array(z.record(z.any())).max(24, 'At most 24 blocks.');
 
 const siteBrand = z.object({
-  name: z.string().trim().max(120).optional(),
-  tagline: z.string().trim().max(160).optional(),
-  logoUrl: z.string().trim().max(2048).optional(),
-  logoAssetId: objectId.nullable().optional(),
-  faviconUrl: z.string().trim().max(2048).optional(),
-  faviconAssetId: objectId.nullable().optional(),
-  primaryColor: hexColor.optional(),
-  accentColor: hexColor.optional(),
-  font: z.string().trim().max(40).optional(),
+  name: z.string().trim().max(120).nullish(),
+  tagline: z.string().trim().max(160).nullish(),
+  logoUrl: z.string().trim().max(2048).nullish(),
+  logoAssetId: objectId.nullish(),
+  faviconUrl: z.string().trim().max(2048).nullish(),
+  faviconAssetId: objectId.nullish(),
+  primaryColor: hexColor.nullish(),
+  accentColor: hexColor.nullish(),
+  font: z.string().trim().max(40).nullish(),
 });
 
 const siteFooter = z.object({

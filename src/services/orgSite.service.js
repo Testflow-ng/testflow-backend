@@ -198,8 +198,11 @@ export const publicSiteView = (resolved, origin, ads = NO_ADS) => {
   const surface = normalizeSurface(resolved.config?.published);
   const name = surface.brand.name || resolved.org.name;
   const description = surface.brand.tagline || `${name} online practice exams.`;
-  const ogImageUrl = `${origin}/api/v1/public/site/og.png?host=${encodeURIComponent(resolved.host)}`;
-  const canonicalUrl = `${origin}/`;
+  // The link and its preview image live on the organisation's own address, so a shared link never
+  // shows Testflow's page or image.
+  const siteOrigin = resolved.host ? `https://${resolved.host}` : origin;
+  const ogImageUrl = `${siteOrigin}/api/v1/public/site/og.png?host=${encodeURIComponent(resolved.host)}`;
+  const canonicalUrl = `${siteOrigin}/`;
   return {
     organization: { id: String(resolved.org._id), name: resolved.org.name, slug: resolved.org.slug },
     site: { template: resolved.config?.template ?? 'modern', ...surface, ads },

@@ -145,7 +145,11 @@ export const getResults = asyncHandler(async (req, res) => {
 /** GET /api/v1/public/results/:attemptId — one paper, gated by `showCorrections`. */
 export const getResult = asyncHandler(async (req, res) => {
   await requireStudent(req.tenant.org._id, req.user);
-  res.json(await sitting.getMyResult(req.tenant.org._id, req.user._id, req.params.attemptId));
+  const result = await sitting.getMyResult(req.tenant.org._id, req.user._id, req.params.attemptId);
+  // Whether students may report a question depends on the organiser's plan; the student never sees why.
+  const { entitlementsFor } = await import('../services/entitlements.js');
+  const ent = await entitlementsFor(req.tenant.org._id);
+  res.json({ ...result, canReport: Boolean(ent.reports) });
 });
 
 /** POST /api/v1/public/exams/:examId/start — server-clock start (or resume). */
