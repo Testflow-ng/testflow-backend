@@ -134,6 +134,7 @@ export const checkout = asyncHandler(async (req, res) => {
     org: req.org,
     user: req.user,
     sub,
+    planKey: req.body?.planKey,
     paymentMethod: req.body?.paymentMethod,
     idempotencyKey: req.get('idempotency-key') ?? null,
   });

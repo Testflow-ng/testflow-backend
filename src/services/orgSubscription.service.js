@@ -178,8 +178,13 @@ const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempo
   return { ...checkoutShape(payment), reused: false, status: payment.status };
 };
 
-export const startSubscriptionCheckout = async ({ org, user, sub, paymentMethod, idempotencyKey }) => {
+export const startSubscriptionCheckout = async ({ org, user, sub, planKey, paymentMethod, idempotencyKey }) => {
   await requireWritableSubscription(org._id);
+  // From Free or a trial, the plan being bought comes from the request (never its price).
+  if ((sub.planKey === 'free' || sub.isTrial) && planKey && planKey !== 'free') {
+    const target = await planOrThrow(planKey);
+    return startCheckout({ org, user, sub, planKey: target.key, kind: 'new', amountKobo: target.priceMinor, idempotencyKey, paymentMethod });
+  }
   if (sub.planKey === 'free') throw new AppError(422, 'PLAN_UNAVAILABLE', 'The Free plan has nothing to check out.');
   const plan = await planOrThrow(sub.planKey);
   return startCheckout({ org, user, sub, planKey: plan.key, kind: 'renewal', amountKobo: plan.priceMinor, idempotencyKey, paymentMethod });
@@ -188,6 +193,10 @@ export const startSubscriptionCheckout = async ({ org, user, sub, paymentMethod,
 export const upgradeSubscription = async ({ org, user, sub, planKey, idempotencyKey, paymentMethod }) => {
   await requireWritableSubscription(org._id);
   const target = await planOrThrow(planKey);
+  // A trial is not a purchase: choosing any paid plan during it (even Studio itself) is a full-price checkout.
+  if (sub.isTrial) {
+    return startCheckout({ org, user, sub, planKey: target.key, kind: 'new', amountKobo: target.priceMinor, idempotencyKey, paymentMethod });
+  }
   if (target.key === sub.planKey) return { noop: true };
 
   if (PLAN_RANK[target.key] <= PLAN_RANK[sub.planKey]) {

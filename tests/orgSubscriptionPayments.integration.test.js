@@ -162,6 +162,22 @@ describe('Everybody step 3 — plan checkout and renewals (integration)', { skip
     assert.equal(again.json.duplicate, true);
   });
 
+  it('a Free organisation can buy a plan through the checkout route (the plan comes from the request)', async () => {
+    const { c } = await registerLogin();
+    const orgId = await mkOrg(c);
+    const free = await currentSub(c, orgId);
+    const res = await c.call('POST', `/api/v1/everybody/organizations/${orgId}/subscriptions/${free.id}/checkout`, {
+      body: { paymentMethod: 'paystack_checkout', planKey: 'studio' },
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.json));
+    assert.ok(res.json.reference);
+    assert.ok(res.json.amountKobo > 0);
+    const verified = await c.call('GET', `/api/v1/everybody/payments/verify?reference=${res.json.reference}`);
+    assert.equal(verified.status, 200, JSON.stringify(verified.json));
+    assert.equal((await currentSub(c, orgId)).planKey, 'studio');
+  });
+
   it('a downgrade is scheduled for the period end and charges nothing', async () => {
     const { c } = await registerLogin();
     const orgId = await mkOrg(c);
