@@ -9,7 +9,7 @@ import { OrgBook } from '../models/OrgBook.js';
 import { OrgMembership } from '../models/OrgMembership.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { canUseLiveCbtPerk } from './orgPerks.service.js';
 import { pushToOrgStudents } from './orgNotify.service.js';
 
@@ -174,6 +174,7 @@ export const listExams = async (orgId, { page = 1, limit = 20, status, q, withEm
 };
 
 export const createExam = async (org, body, actorId) => {
+  await requireWritableSubscription(org._id);
   const patch = examPatchFrom(body);
   const entitlements = await entitlementsFor(org._id);
   if (patch.mode === 'live') await assertLiveCbt(org, entitlements);
@@ -223,6 +224,7 @@ export const getExamQuestions = async (orgId, examId) => {
 
 /** Replace the exam's question list. Every id must be a question this organisation owns. */
 export const setExamQuestions = async (orgId, examId, questionIds) => {
+  await requireWritableSubscription(orgId);
   const exam = await OrgExam.findOne({ _id: examId, organization: orgId }).lean();
   if (!exam) throw new AppError(404, 'EXAM_NOT_FOUND', 'That exam does not exist.');
   await assertExamUnlocked(orgId, exam, { questionIds: questionIds ?? [] });
@@ -365,6 +367,7 @@ export const getAttempt = async (orgId, attemptId) => {
 };
 
 export const updateExam = async (org, examId, body) => {
+  await requireWritableSubscription(org._id);
   const patch = examPatchFrom(body);
   const existing = await OrgExam.findOne({ _id: examId, organization: org._id }).lean();
   if (!existing) throw new AppError(404, 'EXAM_NOT_FOUND', 'That exam does not exist.');
@@ -389,6 +392,7 @@ export const updateExam = async (org, examId, body) => {
 };
 
 export const setExamPublished = async (org, examId, publish) => {
+  await requireWritableSubscription(org._id);
   const exam = await OrgExam.findOne({ _id: examId, organization: org._id }).lean();
   if (!exam) throw new AppError(404, 'EXAM_NOT_FOUND', 'That exam does not exist.');
   if (publish) {
@@ -428,6 +432,7 @@ export const setExamPublished = async (org, examId, publish) => {
  * stay, and the owner can still find the paper, but it leaves the active list.
  */
 export const deleteExam = async (orgId, examId) => {
+  await requireWritableSubscription(orgId);
   const exam = await OrgExam.findOne({ _id: examId, organization: orgId }).lean();
   if (!exam) throw new AppError(404, 'EXAM_NOT_FOUND', 'That exam does not exist.');
   if (exam.status === 'draft' && !(await hasAttempts(orgId, examId))) {
@@ -521,6 +526,7 @@ export const listQuestions = async (orgId, { page = 1, limit = 20, search, topic
 };
 
 export const createQuestion = async (orgId, body, actorId) => {
+  await requireWritableSubscription(orgId);
   assertQuestion(body);
   const { examId, bankId } = body;
   if (bankId) {
@@ -545,6 +551,7 @@ export const createQuestion = async (orgId, body, actorId) => {
 };
 
 export const updateQuestion = async (orgId, questionId, body) => {
+  await requireWritableSubscription(orgId);
   assertQuestion(body, { partial: true });
   const updated = await OrgQuestion.findOneAndUpdate(
     { _id: questionId, organization: orgId, softDeleted: { $ne: true } },
@@ -580,6 +587,7 @@ const lockedQuestionIds = async (orgId, questionIds) => {
 };
 
 export const deleteQuestion = async (orgId, questionId) => {
+  await requireWritableSubscription(orgId);
   const existing = await OrgQuestion.findOne({ _id: questionId, organization: orgId, softDeleted: { $ne: true } })
     .select('_id')
     .lean();
@@ -606,6 +614,7 @@ export const deleteQuestion = async (orgId, questionId) => {
  * the messages the console would have shown, and everything valid is written.
  */
 export const bulkQuestions = async (orgId, rows, actorId, { examId, bankId } = {}) => {
+  await requireWritableSubscription(orgId);
   if (bankId) {
     assertFeature(await entitlementsFor(orgId), 'question_banks');
     const bank = await OrgQuestionBank.findOne({ _id: bankId, organization: orgId }).lean();
@@ -644,6 +653,7 @@ const MAX_IMPORT_ROWS = 500;
  * filtered subset that reached validation. `dryRun` validates without writing anything.
  */
 export const importQuestionRows = async (orgId, entries, actorId, { examId, bankId, dryRun = false } = {}) => {
+  await requireWritableSubscription(orgId);
   if (!Array.isArray(entries) || !entries.length) {
     throw new AppError(422, 'VALIDATION_ERROR', 'The file has no question rows.');
   }
@@ -706,6 +716,7 @@ export const listBanks = async (orgId) => {
 };
 
 export const createBank = async (orgId, body, actorId) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'question_banks');
   const bank = await OrgQuestionBank.create({
     organization: orgId,
@@ -717,6 +728,7 @@ export const createBank = async (orgId, body, actorId) => {
 };
 
 export const updateBank = async (orgId, bankId, body) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'question_banks');
   const doc = {};
   if (body.name !== undefined) doc.name = body.name;
@@ -733,6 +745,7 @@ export const updateBank = async (orgId, bankId, body) => {
 
 /** Deleting a bank deletes the questions filed in it, which is what the confirm dialog says. */
 export const deleteBank = async (orgId, bankId) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'question_banks');
   const removed = await OrgQuestionBank.findOneAndDelete({ _id: bankId, organization: orgId }).lean();
   if (!removed) throw new AppError(404, 'BANK_NOT_FOUND', 'That question bank does not exist.');
@@ -819,6 +832,7 @@ const bookDoc = (body) => {
 };
 
 export const createBook = async (org, body, actorId) => {
+  await requireWritableSubscription(org._id);
   const doc = bookDoc(body);
   if ((doc.priceMinor ?? 0) > 0) requirePayoutForPrice(org, doc.priceMinor);
   const book = await OrgBook.create({ organization: org._id, ...doc, createdBy: actorId });
@@ -826,6 +840,7 @@ export const createBook = async (org, body, actorId) => {
 };
 
 export const updateBook = async (org, bookId, body) => {
+  await requireWritableSubscription(org._id);
   const existing = await OrgBook.findOne({ _id: bookId, organization: org._id }).lean();
   if (!existing) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
   const doc = bookDoc(body);
@@ -840,6 +855,7 @@ export const updateBook = async (org, bookId, body) => {
 };
 
 export const deleteBook = async (orgId, bookId) => {
+  await requireWritableSubscription(orgId);
   const removed = await OrgBook.findOneAndDelete({ _id: bookId, organization: orgId }).lean();
   if (!removed) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
   return { id: String(bookId), deleted: true };
@@ -895,6 +911,7 @@ export const listStudents = async (orgId, { page = 1, limit = 20, search, role =
 
 /** Suspend or reinstate a student. The membership id is the student id used in the console. */
 export const setStudentStatus = async (orgId, studentId, status) => {
+  await requireWritableSubscription(orgId);
   const m = await OrgMembership.findOneAndUpdate(
     { _id: studentId, organization: orgId, role: 'student', status: { $in: ['active', 'suspended'] } },
     { $set: { status } },
@@ -983,6 +1000,7 @@ export const listPosts = async (orgId) => {
 };
 
 export const createPost = async (orgId, body, actorId) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'announcements');
   const post = await OrgPost.create({
     organization: orgId,
@@ -996,6 +1014,7 @@ export const createPost = async (orgId, body, actorId) => {
 };
 
 export const updatePost = async (orgId, postId, body) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'announcements');
   const doc = {};
   for (const key of ['type', 'text', 'pinned', 'hidden']) {
@@ -1011,6 +1030,7 @@ export const updatePost = async (orgId, postId, body) => {
 };
 
 export const deletePost = async (orgId, postId) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'announcements');
   const removed = await OrgPost.findOneAndDelete({ _id: postId, organization: orgId }).lean();
   if (!removed) throw new AppError(404, 'POST_NOT_FOUND', 'That post does not exist.');
@@ -1069,6 +1089,7 @@ export const listFlags = async (orgId) => {
 };
 
 export const updateFlag = async (orgId, flagId, body, actorId, { all = false } = {}) => {
+  await requireWritableSubscription(orgId);
   assertFeature(await entitlementsFor(orgId), 'reports');
   const flag = await OrgQuestionFlag.findOne({ _id: flagId, organization: orgId });
   if (!flag) throw new AppError(404, 'FLAG_NOT_FOUND', 'That report does not exist.');

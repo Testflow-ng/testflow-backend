@@ -1,7 +1,7 @@
 import { SiteConfig, SITE_TEMPLATES, DEFAULT_SITE_PAGES } from '../models/SiteConfig.js';
 import { OrgDomain } from '../models/OrgDomain.js';
 import { Organization } from '../models/Organization.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { storeOrgImage } from './orgMedia.service.js';
 import { advertisingConfig } from '../config/advertising.js';
 
@@ -96,6 +96,7 @@ const mergeSurface = (base, body) => {
 };
 
 export const patchSite = async (orgId, body) => {
+  await requireWritableSubscription(orgId);
   const config = await getOrCreate(orgId);
   config.draft = mergeSurface(normalizeSurface(config.draft), body);
   config.draftVersion = (config.draftVersion ?? 0) + 1;
@@ -111,6 +112,7 @@ export const previewSite = async (orgId) => {
 
 /** Publish the draft. The OG image is rendered on demand, so there is no cache to bust here. */
 export const publishSite = async (orgId, actorId) => {
+  await requireWritableSubscription(orgId);
   const config = await getOrCreate(orgId);
   config.published = normalizeSurface(config.draft);
   config.publishedVersion = config.draftVersion ?? 0;
@@ -124,8 +126,10 @@ export const publishSite = async (orgId, actorId) => {
  * Accept an uploaded image. The decoding, re-encode, quota and count checks all live in
  * `orgMedia.service`, so a site logo and a question image follow exactly the same rules.
  */
-export const uploadSiteAsset = (org, file, kind = 'image', actorId) =>
-  storeOrgImage(org, file, kind, actorId);
+export const uploadSiteAsset = async (org, file, kind = 'image', actorId) => {
+  await requireWritableSubscription(org._id);
+  return storeOrgImage(org, file, kind, actorId);
+};
 
 /**
  * Resolve a hostname to its organisation.

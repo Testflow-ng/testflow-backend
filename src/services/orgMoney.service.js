@@ -4,7 +4,7 @@ import { OrgPayment } from '../models/OrgPayment.js';
 import { Settings } from '../models/Settings.js';
 import { AppError } from '../utils/AppError.js';
 import { paystackConfigured, listPaystackBanks, resolvePaystackAccount, upsertPaystackSubaccount } from './orgPaystack.service.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 
 /**
  * The organisation's money: the bank list its owner picks a payout account from, the split that
@@ -96,6 +96,7 @@ export const verifyPayoutAccount = async ({ bankCode, accountNumber }) => {
  * update the Paystack subaccount and record the result on the organisation.
  */
 export const savePayout = async (org, { bankCode, accountNumber, businessName }) => {
+  await requireWritableSubscription(org._id);
   const ent = await entitlementsFor(org._id);
   if (!ent.paidExams) {
     const error = new AppError(402, 'PLAN_REQUIRED', 'Receiving payments for exams is part of the Studio plan.');

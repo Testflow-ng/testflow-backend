@@ -1,4 +1,5 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { AppError } from '../utils/AppError.js';
 import { Campaign } from '../models/Campaign.js';
 import { JobRun } from '../models/JobRun.js';
 import { notFound } from '../utils/ads/errors.js';

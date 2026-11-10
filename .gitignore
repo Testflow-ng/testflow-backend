@@ -9,3 +9,7 @@ serviceAccountKey.json
 .env.*
 !.env.example
 GOOGLE_KEYS_FOR_BACKEND_DEV.env
+
+# Local test DB helpers
+docker-compose.override.yml
+test-results/

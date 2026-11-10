@@ -9,7 +9,7 @@ import { OrgExam } from '../models/OrgExam.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { recordAction } from './audit.service.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { sendPlanChangeEmail } from './email.service.js';
 import {
   orgPaystackConfigured,
@@ -179,12 +179,14 @@ const startCheckout = async ({ org, user, sub, planKey, kind, amountKobo, idempo
 };
 
 export const startSubscriptionCheckout = async ({ org, user, sub, paymentMethod, idempotencyKey }) => {
+  await requireWritableSubscription(org._id);
   if (sub.planKey === 'free') throw new AppError(422, 'PLAN_UNAVAILABLE', 'The Free plan has nothing to check out.');
   const plan = await planOrThrow(sub.planKey);
   return startCheckout({ org, user, sub, planKey: plan.key, kind: 'renewal', amountKobo: plan.priceMinor, idempotencyKey, paymentMethod });
 };
 
 export const upgradeSubscription = async ({ org, user, sub, planKey, idempotencyKey, paymentMethod }) => {
+  await requireWritableSubscription(org._id);
   const target = await planOrThrow(planKey);
   if (target.key === sub.planKey) return { noop: true };
 
@@ -200,6 +202,7 @@ export const upgradeSubscription = async ({ org, user, sub, planKey, idempotency
 };
 
 export const renewSubscription = async ({ org, user, sub, idempotencyKey, paymentMethod }) => {
+  await requireWritableSubscription(org._id);
   if (sub.planKey === 'free') throw new AppError(422, 'PLAN_UNAVAILABLE', 'The Free plan has nothing to renew.');
   const plan = await planOrThrow(sub.planKey);
   return startCheckout({ org, user, sub, planKey: plan.key, kind: 'renewal', amountKobo: plan.priceMinor, idempotencyKey, paymentMethod });
@@ -282,6 +285,7 @@ export const assertPaymentAccess = async (userId, payment) => {
 
 export const verifySubscriptionPayment = async (userId, reference) => {
   const result = await getSubscriptionPaymentStatus(userId, { reference, refresh: true });
+
   // Preserve historical verify shape while including normalized payment.
   return result;
 };
@@ -405,6 +409,7 @@ export const getSubscriptionPaymentStatus = async (userId, { orgId, reference, r
 
 /** Checkout recovery by payment reference (org-scoped). Never creates a new provider transaction. */
 export const getCheckoutByReference = async (userId, { orgId, reference }) => {
+  await requireWritableSubscription(orgId);
   const payment = await SubscriptionPayment.findOne({ reference });
   if (!payment) throw new AppError(404, 'PAYMENT_NOT_FOUND', 'That payment does not exist.');
   await assertPaymentAccess(userId, payment);

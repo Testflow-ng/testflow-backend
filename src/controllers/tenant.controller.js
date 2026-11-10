@@ -217,7 +217,7 @@ export const register = asyncHandler(async (req, res) => {
 
 /** POST /api/v1/public/auth/login — only a student of this organisation. */
 export const login = asyncHandler(async (req, res) => {
-  const { user, activeProduct } = await identity.loginAccount(req.body, req);
+  const { user } = await identity.loginAccount(req.body, req);
   await googleAuth.joinOrg(req.tenant.org._id, user); // anyone may sign in; a suspended student is refused
   setOrgCookies(res, user);
   res.json({ user });

@@ -25,7 +25,7 @@ export const uploadAvatar = async (user, file) => {
       .resize(400, 400, { fit: 'cover', position: 'center' })
       .webp({ quality: 85 })
       .toBuffer();
-  } catch (err) {
+  } catch {
     throw new AppError(422, 'INVALID_IMAGE', 'The file could not be processed as an image.');
   }
 

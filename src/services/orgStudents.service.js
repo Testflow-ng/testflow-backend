@@ -4,7 +4,7 @@ import { OrgMembership } from '../models/OrgMembership.js';
 import { AppError } from '../utils/AppError.js';
 import { generateToken, hashToken } from '../utils/tokens.js';
 import { logger } from '../utils/logger.js';
-import { entitlementsFor } from './entitlements.js';
+import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { recordAction } from './audit.service.js';
 import { sendOrgStudentEmail } from './email.service.js';
 import { orgSiteUrl } from './orgNotify.service.js';
@@ -29,6 +29,7 @@ const mail = (promise) => promise.catch((err) => logger.error('[org-students] em
  * `added` (new account), `linked` (existing account, now a student here) or `already` (nothing to do).
  */
 export const addStudents = async (org, emails, req) => {
+  await requireWritableSubscription(org._id);
   const list = [...new Set(emails.map((e) => String(e).trim().toLowerCase()))];
   const existingUsers = await User.find({ email: { $in: list } }).select('_id email').lean();
   const byEmail = new Map(existingUsers.map((u) => [u.email, u]));

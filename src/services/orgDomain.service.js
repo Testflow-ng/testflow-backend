@@ -2,6 +2,7 @@ import dns from 'node:dns/promises';
 import { OrgDomain } from '../models/OrgDomain.js';
 import { AppError } from '../utils/AppError.js';
 import { RESERVED_SLUGS } from '../validators/everybody.schema.js';
+import { requireWritableSubscription } from './entitlements.js';
 
 /**
  * The addresses an organisation is reachable on: a platform subdomain (`jamb.testflow.com.ng`) or
@@ -57,6 +58,7 @@ export const checkSubdomain = async (name) => {
 };
 
 export const addDomain = async (org, { type, hostname }) => {
+  await requireWritableSubscription(org._id);
   const host = String(hostname ?? '').trim().toLowerCase().replace(/:\d+$/, '');
   if (type === 'subdomain') {
     if (!host.endsWith(`.${SUBDOMAIN_HOST}`)) {
@@ -92,6 +94,7 @@ export const addDomain = async (org, { type, hostname }) => {
  * propagates.
  */
 export const verifyDomain = async (orgId, domainId) => {
+  await requireWritableSubscription(orgId);
   const domain = await OrgDomain.findOne({ _id: domainId, organization: orgId, status: { $ne: 'removed' } })
     .select('+verification.token')
     .lean();
@@ -139,6 +142,7 @@ export const verifyDomain = async (orgId, domainId) => {
 };
 
 export const removeDomain = async (orgId, domainId) => {
+  await requireWritableSubscription(orgId);
   const removed = await OrgDomain.findOneAndDelete({ _id: domainId, organization: orgId }).lean();
   if (!removed) throw new AppError(404, 'DOMAIN_NOT_FOUND', 'That domain is not connected.');
   return { id: String(domainId), removed: true };
