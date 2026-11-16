@@ -29,12 +29,22 @@ const bookSchema = new mongoose.Schema(
     pages: { type: Number, required: true, min: 1 },
     /** The real file size, reported by the download endpoint. `sizeKb` is derived from it. */
     sizeBytes: { type: Number, default: 0, min: 0 },
+    /**Cumulative download counter, incremented on each successful download. */
+    downloadCount: { type: Number, default: 0, min: 0 },
+    /**Cumulative view counter, incremented when the book detail page is loaded. */
+    viewCount: { type: Number, default: 0, min: 0 },
+    /**Cumulative bookmark counter — not a unique count, but total bookmark actions. */
+    bookmarkCount: { type: Number, default: 0, min: 0 },
+    /** Book type: 'slides' or 'textbook' — used for UI filtering and pricing. */
+    bookType: { type: String, enum: ['slides', 'textbook'], default: 'textbook' },
     edition: { type: String, default: '', trim: true },
     author: { type: String, default: 'TestFlow Editorial', trim: true },
     year: { type: Number, default: null },
     topics: { type: [String], default: [] },
     /** R2 key of the downloadable file. Null until the file is uploaded: download answers 403. */
     fileKey: { type: String, default: null },
+    /** Book type: 'slides' or 'textbook' — used for UI filtering and pricing. */
+    bookType: { type: String, enum: ['slides', 'textbook'], default: 'textbook' },
     published: { type: Boolean, default: true },
     publishedAt: { type: Date, default: null },
   },

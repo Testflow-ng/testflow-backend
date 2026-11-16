@@ -10,6 +10,7 @@ import * as identity from '../services/identity.service.js';
 import * as content from '../services/orgContent.service.js';
 import * as sitting from '../services/orgExamSitting.service.js';
 import * as payments from '../services/orgStudentPayments.service.js';
+import * as library from '../services/orgLibrary.service.js';
 import { setOrgCookies, clearOrgCookies, verifyRefreshToken } from '../services/token.service.js';
 import { ORG_REFRESH_COOKIE } from '../config/cookies.js';
 import { User } from '../models/User.js';
@@ -189,6 +190,34 @@ export const checkoutExam = asyncHandler(async (req, res) => {
 export const verifyPayment = asyncHandler(async (req, res) => {
   await requireStudent(req.tenant.org._id, req.user);
   res.json(await payments.verifyExamPayment(req.tenant.org._id, req.user._id, req.query.reference));
+});
+
+/* ------------------------------------------------------------------ library */
+
+/** GET /api/v1/public/library/books — the organisation's shelf for its own students. */
+export const getLibraryBooks = asyncHandler(async (req, res) => {
+  await requireStudent(req.tenant.org._id, req.user);
+  res.json(await library.listStudentBooks(req.tenant.org._id, req.user, req.query));
+});
+
+/** GET /api/v1/public/library/books/:bookId */
+export const getLibraryBook = asyncHandler(async (req, res) => {
+  await requireStudent(req.tenant.org._id, req.user);
+  res.json({ book: await library.getStudentBook(req.tenant.org._id, req.user, req.params.bookId) });
+});
+
+/** GET /api/v1/public/library/books/:bookId/download — a signed URL after the access check. */
+export const downloadLibraryBook = asyncHandler(async (req, res) => {
+  await requireStudent(req.tenant.org._id, req.user);
+  res.json(await library.getStudentBookFile(req.tenant.org._id, req.user, req.params.bookId));
+});
+
+/** POST /api/v1/public/library/books/:bookId/checkout — buy a priced book. */
+export const checkoutBook = asyncHandler(async (req, res) => {
+  await requireStudent(req.tenant.org._id, req.user);
+  const idempotencyKey = req.get('idempotency-key') || req.body?.idempotencyKey || null;
+  const result = await payments.initializeBookCheckout(req.tenant.org, req.user, req.params.bookId, { idempotencyKey });
+  res.status(result.alreadyPaid ? 200 : 201).json(result);
 });
 
 /** POST /api/v1/public/payments/webhook — Paystack server-to-server, signature-checked. */

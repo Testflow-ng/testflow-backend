@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { config } from '../config/env.js';
 import { Organization } from '../models/Organization.js';
 import { OrgExam } from '../models/OrgExam.js';
+import { OrgBook } from '../models/OrgBook.js';
 import { OrgPayment } from '../models/OrgPayment.js';
 import { OrgAttempt } from '../models/OrgAttempt.js';
 import { walletMode } from '../config/payoutMode.js';
@@ -238,6 +239,113 @@ export const initializeExamCheckout = async (org, student, examId, { idempotency
   };
 };
 
+/**
+ * Start (or resume) the checkout for one priced book.
+ *
+ * A book is a one-time purchase, so unlike an exam there is no per-session policy: one paid row
+ * unlocks the download for good. The price comes from the book row, never from the request, and the
+ * organisation's own subaccount is the settlement target, exactly like a paid exam.
+ *
+ * Charging for a book does not need the Studio plan (that entitlement is about exams); it needs a
+ * live payout account, because the money has somewhere to go.
+ */
+export const initializeBookCheckout = async (org, student, bookId, { idempotencyKey = null } = {}) => {
+  await requireWritableSubscription(org._id);
+  const payer = await Organization.findById(org._id).select('slug payout').lean();
+  requirePayout(payer);
+
+  const book = await OrgBook.findOne({ _id: bookId, organization: org._id, published: true }).lean();
+  if (!book) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
+  if (!(book.priceMinor > 0)) throw new AppError(422, 'BOOK_IS_FREE', 'This book does not need a payment.');
+
+  if (idempotencyKey) {
+    const replay = await OrgPayment.findOne({ organization: org._id, idempotencyKey }).lean();
+    if (replay) {
+      if (String(replay.student) !== String(student._id)) {
+        throw new AppError(409, 'IDEMPOTENCY_CONFLICT', 'That payment reference belongs to someone else.');
+      }
+      return {
+        payment: paymentView(replay),
+        authorizationUrl: replay.authorizationUrl,
+        reference: replay.reference,
+        amountKobo: replay.grossKobo,
+        currency: replay.currency,
+        alreadyPaid: replay.status === 'paid',
+      };
+    }
+  }
+
+  const paid = await OrgPayment.findOne({
+    organization: org._id,
+    student: student._id,
+    item: 'book',
+    itemRef: book._id,
+    status: 'paid',
+  }).lean();
+  if (paid) {
+    return { payment: paymentView(paid), alreadyPaid: true, access: true, reference: paid.reference };
+  }
+
+  const percent = await getPlatformPercent();
+  const platformFeeKobo = Math.round((book.priceMinor * percent) / 100);
+  const reference = referenceFor(org._id);
+  const payment = await OrgPayment.create({
+    organization: org._id,
+    student: student._id,
+    item: 'book',
+    itemRef: book._id,
+    itemTitle: book.title,
+    reference,
+    currency: book.currency ?? 'NGN',
+    grossKobo: book.priceMinor,
+    platformPercent: percent,
+    platformFeeKobo,
+    orgShareKobo: Math.max(0, book.priceMinor - platformFeeKobo),
+    settledTo: walletMode() ? 'wallet' : 'subaccount',
+    status: 'initialized',
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+  });
+
+  if (!orgPaystackConfigured()) {
+    await OrgPayment.deleteOne({ _id: payment._id });
+    throw new AppError(503, 'PAYMENT_NOT_CONFIGURED', 'Payments are not configured yet.');
+  }
+
+  const callbackUrl = config.isProduction
+    ? `https://${payer.slug}.testflow.com.ng/library/complete`
+    : `${config.CLIENT_URL}/library/complete?tenant=${encodeURIComponent(payer.slug ?? '')}`;
+  let initialized;
+  try {
+    initialized = await initializeOrgTransaction({
+      reference,
+      email: student.email,
+      amountKobo: payment.grossKobo,
+      currency: payment.currency,
+      callbackUrl,
+      ...(walletMode() ? {} : { subaccount: payer.payout.subaccountCode }),
+      metadata: {
+        kind: 'org_book',
+        organizationId: String(org._id),
+        bookId: String(book._id),
+        studentId: String(student._id),
+      },
+    });
+  } catch (error) {
+    await OrgPayment.updateOne({ _id: payment._id }, { $set: { status: 'failed', failureReason: 'initialize_failed' } });
+    throw error;
+  }
+
+  payment.authorizationUrl = initialized.authorizationUrl;
+  await payment.save();
+  return {
+    payment: paymentView(payment),
+    authorizationUrl: initialized.authorizationUrl,
+    reference,
+    amountKobo: payment.grossKobo,
+    currency: payment.currency,
+  };
+};
+
 /** Re-check with the provider. Only a confirmed success marks the payment paid. */
 export const verifyExamPayment = async (orgId, studentId, reference) => {
   await requireWritableSubscription(orgId);
@@ -251,6 +359,12 @@ export const verifyExamPayment = async (orgId, studentId, reference) => {
   const result = await settle(payment, verified);
   return { payment: paymentView(result.payment), access: result.access, duplicate: result.duplicate };
 };
+
+/**
+ * The same provider re-check serves a book payment; the row already says which item it buys, and
+ * `settle` is item-agnostic on purpose. Kept as its own export so the caller's intent is readable.
+ */
+export const verifyBookPayment = verifyExamPayment;
 
 /**
  * Paystack's server-to-server callback. The signature covers the exact bytes, so the route must

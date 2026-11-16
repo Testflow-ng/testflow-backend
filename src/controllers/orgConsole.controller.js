@@ -225,6 +225,18 @@ export const deleteBook = asyncHandler(async (req, res) => {
   res.json(await content.deleteBook(req.org._id, req.params.bookId));
 });
 
+export const uploadBookFile = asyncHandler(async (req, res) => {
+  const book = await content.uploadBookFile(req.org, req.params.bookId, req.file);
+  await recordAction({ actorId: req.user._id, action: 'ORG_BOOK_FILE_UPLOAD', targetId: req.org._id, targetType: 'Organization', metadata: { bookId: req.params.bookId }, req });
+  res.status(201).json({ book });
+});
+
+export const removeBookFile = asyncHandler(async (req, res) => {
+  const book = await content.removeBookFile(req.org._id, req.params.bookId);
+  await recordAction({ actorId: req.user._id, action: 'ORG_BOOK_FILE_REMOVE', targetId: req.org._id, targetType: 'Organization', metadata: { bookId: req.params.bookId }, req });
+  res.json({ book });
+});
+
 /* ----------------------------------------------------------------- money */
 
 export const listBanks = asyncHandler(async (_req, res) => {

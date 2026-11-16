@@ -441,7 +441,7 @@ const bookBody = {
   color: z.enum(['red', 'blue', 'ink', 'green', 'amber', 'violet', 'teal']).optional(),
   priceMinor: z.coerce.number().int().min(0).optional(),
   currency: z.string().trim().length(3).optional(),
-  visibility: z.enum(['all_students', 'group', 'paid']).optional(),
+  visibility: z.enum(['all_students', 'paid']).optional(),
   previewPages: z.coerce.number().int().min(0).optional(),
   pages: z.coerce.number().int().min(0).optional(),
   fileName: z.string().trim().max(300).optional(),

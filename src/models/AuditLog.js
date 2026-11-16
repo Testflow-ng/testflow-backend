@@ -58,6 +58,8 @@ const auditLogSchema = new mongoose.Schema(
         'SITE_EDIT',
         'SITE_PUBLISH',
         'ORG_EXAM_CREATE',
+        'ORG_BOOK_FILE_UPLOAD',
+        'ORG_BOOK_FILE_REMOVE',
         'ORG_PAYOUT_SAVE',
         'ORG_DOMAIN_ADD',
         'TENANT_REGISTER',

@@ -3,7 +3,7 @@ import * as org from '../controllers/orgConsole.controller.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireOrgRole } from '../middleware/requireOrgRole.js';
-import { csvWithImages, singleImage, singleImport } from '../middleware/uploadImage.js';
+import { csvWithImages, singleBookFile, singleImage, singleImport } from '../middleware/uploadImage.js';
 import { sharedRateLimit } from '../middleware/rateLimit.js';
 import {
   orgExamListSchema,
@@ -182,6 +182,10 @@ router.get('/organizations/:organizationId/library/books', authenticate, validat
 router.post('/organizations/:organizationId/library/books', authenticate, validate(orgBookCreateSchema), staff, org.createBook);
 router.patch('/organizations/:organizationId/library/books/:bookId', authenticate, validate(orgBookUpdateSchema), staff, org.updateBook);
 router.delete('/organizations/:organizationId/library/books/:bookId', authenticate, validate(orgBookParamSchema), staff, org.deleteBook);
+// The PDF itself is a separate call: metadata saves instantly, the file upload can fail on its own
+// without losing the row. Replacing it swaps the object and removes the old one.
+router.post('/organizations/:organizationId/library/books/:bookId/file', authenticate, singleBookFile(), validate(orgBookParamSchema), staff, org.uploadBookFile);
+router.delete('/organizations/:organizationId/library/books/:bookId/file', authenticate, validate(orgBookParamSchema), staff, org.removeBookFile);
 
 /* --- money --- */
 

@@ -103,4 +103,17 @@ npm run test:db:down        # Stop test MongoDB container
 
 ### 4. Integration coverage areas
 
-Integration suites exercise real MongoDB flows including: identity/auth, organizations/everybody, memberships/students, subscriptions/entitlements, payments/webhook dispatch, domains/org console flows, exam attempts/org exam flow/live CBT, library, ads/advertising, study/leaderboard/feedback (see `tests/*.integration.test.js`).
+Integration suites exercise real MongoDB flows including: identity/auth, organizations/everybody, memberships/students, subscriptions/entitlements, payments/webhook dispatch, domains/org console flows, exam attempts/org exam flow/live CBT, **library** (shelf browse, metadata, download, and one-time book purchase), ads/advertising, study/leaderboard/feedback (see `tests/*.integration.test.js`).
+
+**Library features now covered by integration tests:**
+- **Shelf browse:** `GET /api/v1/public/library/books` — free, with search/filter/paging
+- **Book detail:** `GET /api/v1/public/library/books/:id` — metadata only (no `fileKey`/`url`)
+- **Reading:** `GET /api/v1/public/library/books/:id/pages?page=` — one page, clamped out-of-range
+- **Bookmarks & progress:** free operations, toggles and `PUT /:id/progress`
+- **Download:** `GET /api/v1/public/library/books/:id/download` — signed R2 URL, 60/hr rate limit
+- **Student Organisation Library:** `/org-console/organizations/:id/library/books` — CRUD for books, PDF uploads by bytes, `group` visibility refused
+- **Student org shelf:** `GET /api/v1/public/library/books` (org) — only `all_students` and `paid` visibility served, legacy `group` refused
+- **Student org download:** signed URLs only after payment verification
+- **Book purchase:** `POST /api/v1/public/library/books/:id/checkout` — Paystack payment, idempotent re-checks
+- **Consoles:** PDF storage against storage-Mb quota, replacement removes old file from R2, `fileKey` never leaks
+- **Seed:** `npm run seed` now runs `seedLibrary()` automatically

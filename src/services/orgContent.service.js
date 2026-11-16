@@ -9,9 +9,11 @@ import { OrgBook } from '../models/OrgBook.js';
 import { OrgMembership } from '../models/OrgMembership.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
+import { deleteObject } from '../utils/r2.js';
 import { entitlementsFor, requireWritableSubscription } from './entitlements.js';
 import { canUseLiveCbtPerk } from './orgPerks.service.js';
 import { pushToOrgStudents } from './orgNotify.service.js';
+import { storeOrgBookFile } from './orgMedia.service.js';
 
 /**
  * The organisation console's content: exams, the question bank, the books on its shelf, and the
@@ -814,6 +816,9 @@ export const toBookView = (book) => ({
   previewPages: book.previewPages ?? 0,
   pages: book.pages ?? 0,
   fileName: book.fileName ?? '',
+  // The console shows whether a file is attached without ever receiving the storage key.
+  hasFile: Boolean(book.fileKey),
+  sizeKb: Math.round((book.sizeBytes ?? 0) / 1024),
   published: Boolean(book.published),
   createdAt: book.createdAt ?? null,
 });
@@ -823,11 +828,35 @@ export const listBooks = async (orgId) => {
   return { items: rows.map(toBookView), total: rows.length };
 };
 
-const bookDoc = (body) => {
+/**
+ * The fields a console may set, and the two rules that keep price and visibility honest:
+ *
+ *  - A priced book is visible to `paid` only. The price is what the student pays, so a positive
+ *    price silently switching the visibility to `paid` is the one rule a console cannot forget.
+ *  - `paid` with no price would be a book nobody can unlock, so it is refused at write time.
+ *  - `group` predates the shelf's student surface and no group model exists to honour it; it is
+ *    refused for new writes rather than served to everyone, which would leak it.
+ */
+const BOOK_FIELDS = Object.freeze([
+  'title', 'code', 'description', 'color', 'priceMinor', 'currency', 'visibility',
+  'previewPages', 'pages', 'fileName', 'published',
+]);
+
+const bookDoc = (body, existing = null) => {
   const doc = {};
-  for (const key of ['title', 'code', 'description', 'color', 'priceMinor', 'currency', 'visibility', 'previewPages', 'pages', 'fileName', 'published']) {
+  for (const key of BOOK_FIELDS) {
     if (body[key] !== undefined) doc[key] = body[key];
   }
+
+  const price = doc.priceMinor !== undefined ? Number(doc.priceMinor) : Number(existing?.priceMinor ?? 0);
+  if (doc.visibility === 'group') {
+    throw new AppError(422, 'UNSUPPORTED_VISIBILITY', 'Only "all_students" and "paid" books are supported.');
+  }
+  if (doc.visibility === 'paid' && price <= 0) {
+    throw new AppError(422, 'BOOK_PRICE_REQUIRED', 'A paid book needs a price above zero.');
+  }
+  if (doc.priceMinor !== undefined && price > 0) doc.visibility = 'paid';
+
   return doc;
 };
 
@@ -843,7 +872,7 @@ export const updateBook = async (org, bookId, body) => {
   await requireWritableSubscription(org._id);
   const existing = await OrgBook.findOne({ _id: bookId, organization: org._id }).lean();
   if (!existing) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
-  const doc = bookDoc(body);
+  const doc = bookDoc(body, existing);
   const price = doc.priceMinor !== undefined ? doc.priceMinor : existing.priceMinor ?? 0;
   if (price > 0) requirePayoutForPrice(org, price);
   const updated = await OrgBook.findOneAndUpdate(
@@ -854,10 +883,53 @@ export const updateBook = async (org, bookId, body) => {
   return toBookView(updated);
 };
 
+/**
+ * Attach (or replace) the PDF a book is downloaded from.
+ *
+ * The bytes never touch disk: multer holds them in memory, `storeOrgBookFile` validates the magic
+ * number and writes to R2, and only then is the key saved on the row. The previous object is
+ * removed after the row points at the new one, so a failed upload leaves the old file working.
+ */
+export const uploadBookFile = async (org, bookId, file) => {
+  await requireWritableSubscription(org._id);
+  const existing = await OrgBook.findOne({ _id: bookId, organization: org._id }).lean();
+  if (!existing) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
+  if ((existing.priceMinor ?? 0) > 0) requirePayoutForPrice(org, existing.priceMinor);
+
+  const stored = await storeOrgBookFile(org, file, { existingSize: existing.sizeBytes ?? 0 });
+  const updated = await OrgBook.findOneAndUpdate(
+    { _id: bookId, organization: org._id },
+    { $set: { fileKey: stored.key, fileName: stored.fileName, sizeBytes: stored.sizeBytes } },
+    { new: true, runValidators: true },
+  ).lean();
+
+  if (existing.fileKey && existing.fileKey !== stored.key) {
+    await deleteObject(existing.fileKey).catch(() => {});
+  }
+  return toBookView(updated);
+};
+
+/** Detach the file. The row stays (a book can be republished with a new file later). */
+export const removeBookFile = async (orgId, bookId) => {
+  await requireWritableSubscription(orgId);
+  const existing = await OrgBook.findOne({ _id: bookId, organization: orgId }).lean();
+  if (!existing) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
+
+  if (existing.fileKey) await deleteObject(existing.fileKey).catch(() => {});
+  const updated = await OrgBook.findOneAndUpdate(
+    { _id: bookId, organization: orgId },
+    { $set: { fileKey: null, fileName: '', sizeBytes: 0 } },
+    { new: true },
+  ).lean();
+  return toBookView(updated);
+};
+
 export const deleteBook = async (orgId, bookId) => {
   await requireWritableSubscription(orgId);
   const removed = await OrgBook.findOneAndDelete({ _id: bookId, organization: orgId }).lean();
   if (!removed) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book does not exist.');
+  // Best effort: the row is gone either way, and a stray object costs storage but leaks nothing.
+  if (removed.fileKey) await deleteObject(removed.fileKey).catch(() => {});
   return { id: String(bookId), deleted: true };
 };
 

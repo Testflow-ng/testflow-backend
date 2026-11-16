@@ -70,11 +70,23 @@ const send = async (method, key, { body, contentType, cacheControl } = {}) => {
   }
 };
 
+/**
+ * Tests swap only the object-store writes, so a suite never touches the network. Signing stays the
+ * real implementation, so a signed URL in a test is signed exactly as it is in production.
+ */
+let storeOverride = null;
+export const setR2ForTests = (fake) => {
+  storeOverride = fake;
+};
+
 export const putObject = (key, body, contentType, cacheControl = 'public, max-age=31536000, immutable') =>
-  send('PUT', key, { body, contentType, cacheControl });
+  storeOverride?.putObject
+    ? storeOverride.putObject(key, body, contentType, cacheControl)
+    : send('PUT', key, { body, contentType, cacheControl });
 
 /** Missing objects count as deleted. */
-export const deleteObject = (key) => send('DELETE', key);
+export const deleteObject = (key) =>
+  storeOverride?.deleteObject ? storeOverride.deleteObject(key) : send('DELETE', key);
 
 /** Short-lived URL a browser can PUT a file to directly (payload unsigned). */
 export const presignPut = (key, { expiresSec = 300 } = {}) => {

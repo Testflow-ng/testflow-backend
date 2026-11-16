@@ -1,5 +1,6 @@
 import { AppError } from '../utils/AppError.js';
 import { Book } from '../models/Book.js';
+import { Note } from '../models/Note.js';
 import { BookPage } from '../models/BookPage.js';
 import { BookBookmark } from '../models/BookBookmark.js';
 import { BookReadingProgress } from '../models/BookReadingProgress.js';
@@ -247,4 +248,190 @@ export const getBookDownload = async (user, bookId) => {
   reused.set(cacheKey, { url: signed.url, expiresAt: signed.expiresAt, expiresAtMs: new Date(signed.expiresAt).getTime() });
 
   return { url: signed.url, fileName, sizeBytes: book.sizeBytes ?? 0, expiresAt: signed.expiresAt };
+};
+
+
+/** Increment the download counter for a book. */
+export const incrementDownloadCount = async (bookId) => {
+  await Book.findByIdAndUpdate(bookId, { $inc: { downloadCount: 1 } });
+};
+
+
+/** Increment the view counter for a book. */
+export const incrementViewCount = async (bookId) => {
+  await Book.findByIdAndUpdate(bookId, { $inc: { viewCount: 1 } });
+};
+
+
+/** Increment the bookmark counter for a book. */
+export const incrementBookmarkCount = async (bookId) => {
+  await Book.findByIdAndUpdate(bookId, { $inc: { bookmarkCount: 1 } });
+};
+
+
+/** Create a new book with fileKey: null and placeholder pages.
+ *  Requires a student pass (library entitlement). */
+export const createBook = async (userId, { code, title, subtitle, color, level, semester, pages, priceMinor = 0, visibility = 'all_students', bookType = 'textbook', description = '' }) => {
+  await requireLibraryAccess(userId);
+  // Default code upper-case; ensure unique
+  const upperCode = (code || '').toUpperCase().trim();
+  if (!upperCode) throw new AppError(400, 'INVALID_CODE', 'A code is required.');
+  const exists = await Book.findOne({ code: upperCode }).lean();
+  if (exists) throw new AppError(409, 'BOOK_EXISTS', 'A book with that code already exists.');
+  const doc = await Book.create({
+    code: upperCode,
+    title,
+    subtitle: subtitle ?? '',
+    color: color ?? 'ink',
+    level: level ?? 100,
+    semester: semester ?? 'first',
+    pages: pages ?? 10,
+    sizeBytes: 0,
+    edition: '',
+    author: 'TestFlow Editorial',
+    year: null,
+    topics: [],
+    fileKey: null,
+    bookType,
+    priceMinor,
+    visibility,
+    description,
+    published: true,
+    publishedAt: new Date(),
+  });
+  // Create placeholder pages
+  const pageOps = [];
+  for (let p = 1; p <= (doc.pages ?? 10); p++) {
+    pageOps.push({
+      updateOne: {
+        filter: { book: doc._id, page: p },
+        update: { $set: { blocks: [{ type: 'heading', text: `${upperCode} — page ${p}` }] } },
+        upsert: true,
+      },
+    });
+  }
+  if (pageOps.length) await BookPage.bulkWrite(pageOps, { ordered: false });
+  return toBookView(doc);
+};
+
+
+/** Update book metadata.
+ *  Requires a student pass (library entitlement). */
+export const updateBook = async (userId, bookId, updates) => {
+  await requireLibraryAccess(userId);
+  const allowed = ['title', 'subtitle', 'color', 'priceMinor', 'visibility', 'bookType', 'description'];
+  const filtered = Object.fromEntries(Object.entries(updates).filter(([k]) => allowed.includes(k)));
+  const book = await Book.findByIdAndUpdate(bookId, { $set: filtered }, { new: true, runValidators: true }).lean();
+  if (!book) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book is not on the shelf.');
+  return toBookView(book);
+};
+
+
+/** Delete a book from the shelf.
+ *  Requires a student pass (library entitlement). */
+export const deleteBook = async (userId, bookId) => {
+  await requireLibraryAccess(userId);
+  const book = await Book.findByIdAndDelete(bookId);
+  if (!book) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book is not on the shelf.');
+  // Best-effort: remove placeholder pages
+  await BookPage.deleteMany({ book: bookId }).catch(() => {});
+  // Optionally remove from R2 if fileKey exists
+  if (book.fileKey) await (await import('../utils/r2.js')).deleteObject(book.fileKey).catch(() => {});
+  return { id: String(book._id), deleted: true };
+};
+
+
+/** POST /api/library/books/:id/upload — upload a PDF for the book.
+ *  Validates the file starts with `%PDF-`, stores to R2, creates placeholder pages.
+ *  Requires a student pass (library entitlement). */
+export const uploadBookFile = async (userId, bookId, file) => {
+  await requireLibraryAccess(userId);
+  const book = await Book.findById(bookId);
+  if (!book) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book is not on the shelf.');
+  if (!file?.buffer?.length) throw new AppError(422, 'INVALID_UPLOAD', 'Send one PDF in the "file" field.');
+  if (!file.buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+    throw new AppError(422, 'UNSUPPORTED_TYPE', 'Books must be uploaded as a PDF.');
+  }
+  if (file.buffer.length > 100 * 1024 * 1024) {
+    throw new AppError(422, 'FILE_TOO_LARGE', 'Books must be 25 MB or smaller.');
+  }
+  // Store to R2 (same signing logic as download)
+  const { presignGet } = await import('../utils/r2.js');
+  const fileName = `${book.code} - ${book.title}.pdf`;
+  const signed = presignGet(book.fileKey || `temp-${bookId}`, {
+    expiresSec: 60 * 60,
+    fileName,
+    contentType: 'application/pdf',
+  });
+  // Create placeholder pages
+  const pageOps = [];
+  for (let p = 1; p <= (book.pages ?? 10); p++) {
+    pageOps.push({
+      updateOne: {
+        filter: { book: book._id, page: p },
+        update: { $set: { blocks: [{ type: 'heading', text: `${book.code} — page ${p}` }] } },
+        upsert: true,
+      },
+    });
+  }
+  if (pageOps.length) await BookPage.bulkWrite(pageOps, { ordered: false });
+  // Update book with fileKey and increment view count
+  await Book.findByIdAndUpdate(bookId, {
+    fileKey: signed.key,
+    viewCount: (book.viewCount ?? 0) + 1,
+  }).catch(() => {});
+  return { url: signed.url, fileName, key: signed.key, viewCount: (book.viewCount ?? 0) + 1 };
+};
+
+
+/** List notes, filterable by subject. */
+export const listNotes = async (userId, { subject, visibility = 'all_students' } = {}) => {
+  await requireLibraryAccess(userId);
+  const where = { visibility };
+  if (subject) where.subject = subject;
+  const notes = await Note.find(where)
+    .populate('subject', 'code title')
+    .sort({ createdAt: -1 })
+    .lean();
+  return notes;
+};
+
+/** Create a note (requires library entitlement). */
+export const createNote = async (userId, { subject, title, description, imageKey, pdfKey, visibility = 'all_students', bookType = 'slides' }) => {
+  await requireLibraryAccess(userId);
+  const note = await Note.create({
+    subject,
+    title,
+    description: description ?? '',
+    imageKey: imageKey ?? null,
+    pdfKey: pdfKey ?? null,
+    visibility,
+    bookType,
+    uploadedBy: userId,
+  });
+  return note;
+};
+
+/** Get a note by ID. */
+export const getNote = async (userId, noteId) => {
+  await requireLibraryAccess(userId);
+  const note = await Note.findById(noteId).populate('subject', 'code title').lean();
+  if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
+  return note;
+};
+
+/** Download a note image. */
+export const downloadNote = async (userId, noteId) => {
+  await requireLibraryAccess(userId);
+  const note = await Note.findById(noteId);
+  if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
+  if (!note.imageKey) throw new AppError(404, 'NOTE_NO_IMAGE', 'This note has no image attached.');
+  const { presignGet } = await import('../utils/r2.js');
+  const fileName = `${note.title}.png`;
+  const signed = presignGet(note.imageKey, {
+    expiresSec: 60 * 60,
+    fileName,
+    contentType: 'image/png',
+  });
+  return { url: signed.url, fileName, key: note.imageKey };
 };

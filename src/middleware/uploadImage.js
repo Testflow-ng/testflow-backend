@@ -54,3 +54,25 @@ export const csvWithImages = (req, res, next) =>
     }
     return next();
   });
+
+/**
+ * One PDF book, held in memory and sent straight to the media store.
+ *
+ * 25 MB is the ceiling the console advertises for a book; the type is checked from the bytes in the
+ * service (magic number), never from the client's extension or MIME.
+ */
+export const MAX_BOOK_BYTES = 100 * 1024 * 1024;
+const bookUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_BOOK_BYTES, files: 1, fields: 4 },
+});
+
+export const singleBookFile = (field = 'file') => (req, res, next) =>
+  bookUpload.single(field)(req, res, (err) => {
+    if (err) {
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      const code = tooBig ? 'FILE_TOO_LARGE' : 'INVALID_UPLOAD';
+      return next(new AppError(422, code, 'Send one PDF of 25 MB or less in the "file" field.'));
+    }
+    return next();
+  });

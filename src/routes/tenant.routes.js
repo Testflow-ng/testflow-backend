@@ -15,6 +15,9 @@ import {
   tenantCheckoutSchema,
   tenantVerifyPaymentSchema,
   tenantFlagSchema,
+  tenantBookListSchema,
+  tenantBookParamSchema,
+  tenantBookCheckoutSchema,
 } from '../validators/tenant.schema.js';
 import { sharedRateLimit } from '../middleware/rateLimit.js';
 
@@ -27,6 +30,15 @@ const flagLimit = sharedRateLimit({
   windowMs: 60_000,
   max: 20,
   key: (req) => String(req.user?._id ?? req.ip),
+});
+
+// Signing a book URL is cheap, but a signed link is what a student forwards; limit per student and
+// per book so one account cannot turn the shelf into a signing oracle.
+const bookDownloadLimit = sharedRateLimit({
+  name: 'tenant-book-download',
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  key: (req) => `${req.user?._id ?? req.ip}:${req.params?.bookId ?? ''}`,
 });
 
 // The organisation's public face and the share image. Crawlers read these without a session.
@@ -64,5 +76,13 @@ router.get('/results/:attemptId', resolveTenant, authenticate, validate(tenantAt
 // Announcements and question reports.
 router.get('/announcements', resolveTenant, authenticate, tenant.getAnnouncements);
 router.post('/questions/:questionId/flag', resolveTenant, authenticate, validate(tenantFlagSchema), flagLimit, tenant.flagQuestion);
+
+// The organisation's own Library: its shelf, its book detail, the signed download and the purchase
+// of a priced book. Browsing needs a session and an active membership; the price gate lives in the
+// service, next to the two functions that hand out the file.
+router.get('/library/books', resolveTenant, authenticate, validate(tenantBookListSchema), tenant.getLibraryBooks);
+router.get('/library/books/:bookId', resolveTenant, authenticate, validate(tenantBookParamSchema), tenant.getLibraryBook);
+router.get('/library/books/:bookId/download', resolveTenant, authenticate, bookDownloadLimit, validate(tenantBookParamSchema), tenant.downloadLibraryBook);
+router.post('/library/books/:bookId/checkout', resolveTenant, authenticate, validate(tenantBookCheckoutSchema), tenant.checkoutBook);
 
 export default router;

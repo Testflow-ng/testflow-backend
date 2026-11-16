@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import sharp from 'sharp';
 import { OrgAsset } from '../models/OrgAsset.js';
+import { OrgBook } from '../models/OrgBook.js';
 import { AppError } from '../utils/AppError.js';
 import { putObject, publicUrlFor } from '../utils/r2.js';
 import { entitlementsFor } from './entitlements.js';
@@ -69,8 +71,14 @@ export const prepareOrgImage = async (buffer) => {
 };
 
 const usedBytes = async (orgId) => {
-  const rows = await OrgAsset.find({ organization: orgId }).select('size').lean();
-  return rows.reduce((sum, row) => sum + (row.size ?? 0), 0);
+  const [assets, books] = await Promise.all([
+    OrgAsset.find({ organization: orgId }).select('size').lean(),
+    OrgBook.find({ organization: orgId }).select('sizeBytes').lean(),
+  ]);
+  return (
+    assets.reduce((sum, row) => sum + (row.size ?? 0), 0) +
+    books.reduce((sum, row) => sum + (row.sizeBytes ?? 0), 0)
+  );
 };
 
 /**
@@ -121,5 +129,64 @@ export const storeOrgImage = async (org, file, kind = 'image', actorId) => {
     height: prepared.height,
     bytes: prepared.bytes,
     contentType: prepared.contentType,
+  };
+};
+
+/* ----------------------------------------------------------------- books */
+
+/** Keep in sync with `singleBookFile` in `middleware/uploadImage.js`. */
+const MAX_BOOK_BYTES = 100 * 1024 * 1024;
+const PDF_MAGIC = Buffer.from('%PDF-');
+
+/** A filename a Content-Disposition header and a student's Downloads folder can both live with. */
+const safeBookFileName = (originalname, fallback) => {
+  const base = String(originalname ?? '').split(/[\\/]/).pop() ?? '';
+  const cleaned = [...base]
+    .filter((ch) => {
+      const code = ch.codePointAt(0);
+      return code >= 0x20 && code !== 0x7f && ch !== '"';
+    })
+    .join('')
+    .trim()
+    .slice(0, 200);
+  const named = cleaned.toLowerCase().endsWith('.pdf') ? cleaned : `${cleaned || fallback}.pdf`;
+  return named || `${fallback}.pdf`;
+};
+
+/**
+ * Store one organisation book PDF.
+ *
+ * The type is decided by the bytes (`%PDF-`), not the extension or the client's MIME type. The file
+ * is private: it is only ever handed out through a short-lived signed URL after the student's access
+ * check, so it is written with a no-store cache header instead of the public image policy.
+ *
+ * `existingKey`/`existingSize` describe the file being replaced; they are excluded from the quota
+ * check so a plan that is full can still replace a book with a smaller one.
+ */
+export const storeOrgBookFile = async (org, file, { existingSize = 0 } = {}) => {
+  if (!file?.buffer?.length) throw new AppError(422, 'INVALID_UPLOAD', 'Send one PDF in the "file" field.');
+  if (file.buffer.length > MAX_BOOK_BYTES) {
+    throw new AppError(422, 'FILE_TOO_LARGE', 'Books must be 25 MB or smaller.');
+  }
+  if (!file.buffer.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)) {
+    throw new AppError(422, 'UNSUPPORTED_TYPE', 'Books must be uploaded as a PDF.');
+  }
+
+  const ent = await entitlementsFor(org._id).catch(() => null);
+  const capBytes = ent?.storageMb ? ent.storageMb * 1024 * 1024 : null;
+  if (capBytes) {
+    const used = (await usedBytes(org._id)) - existingSize;
+    if (used + file.buffer.length > capBytes) {
+      throw new AppError(422, 'STORAGE_LIMIT', 'This plan is out of file storage. Remove some files or upgrade.');
+    }
+  }
+
+  const key = `org/${org._id}/library/${Date.now()}-${crypto.randomBytes(6).toString('hex')}.pdf`;
+  await putObject(key, file.buffer, 'application/pdf', 'private, max-age=0, no-store');
+
+  return {
+    key,
+    sizeBytes: file.buffer.length,
+    fileName: safeBookFileName(file.originalname, `book-${path.basename(key, '.pdf')}`),
   };
 };

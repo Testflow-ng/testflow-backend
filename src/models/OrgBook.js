@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
 
+/**
+ * `group` predates the student shelf and no group model exists to honour it. New writes are
+ * refused at the validator (only `all_students` and `paid` are accepted) and the student service
+ * never serves a legacy `group` row; the value stays in the enum so an existing row still saves.
+ */
 export const ORG_BOOK_VISIBILITIES = Object.freeze(['all_students', 'group', 'paid']);
 /** Cover colours the console's `Book` component knows. */
 export const ORG_BOOK_COLORS = Object.freeze(['red', 'blue', 'ink', 'green', 'amber', 'violet', 'teal']);
@@ -8,9 +13,9 @@ export const ORG_BOOK_COLORS = Object.freeze(['red', 'blue', 'ink', 'green', 'am
  * A book in an organisation's own Library.
  *
  * Mirrors the platform library's `Book`, but scoped to one organisation and priced by it. A price
- * of zero is free to every student; a positive price is what makes a payout account mandatory
- * before the book can be published (see `orgMoney`/`orgBook` services). `fileKey` is the object key
- * in the media store and is never serialised; a signed URL is minted on the student download path.
+ * of zero is free to every student; a positive price makes a payout account mandatory before the
+ * book can be published (see `orgContent`/`orgMedia`). `fileKey` is the object key in the media
+ * store and is never serialised; a signed URL is minted on the student download path.
  */
 const orgBookSchema = new mongoose.Schema(
   {

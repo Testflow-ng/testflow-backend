@@ -34,3 +34,40 @@ export const saveProgress = asyncHandler(async (req, res) => {
 export const downloadBook = asyncHandler(async (req, res) => {
   res.json(await library.getBookDownload(req.user, req.params.id));
 });
+
+
+export const createBook = asyncHandler(async (req, res) => {
+  res.json(await library.createBook(req.user._id, req.body));
+});
+
+export const updateBook = asyncHandler(async (req, res) => {
+  res.json(await library.updateBook(req.user._id, req.params.id, req.body));
+});
+
+export const deleteBook = asyncHandler(async (req, res) => {
+  res.json(await library.deleteBook(req.user._id, req.params.id));
+});
+
+export const uploadBookFile = asyncHandler(async (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'No file uploaded' });
+  res.json(await library.uploadBookFile(req.user._id, req.params.id, file));
+});
+
+
+export const listNotes = asyncHandler(async (req, res) => {
+  res.json(await library.listNotes(req.user._id, req.query));
+});
+
+export const createNote = asyncHandler(async (req, res) => {
+  res.json(await library.createNote(req.user._id, req.body));
+});
+
+export const getNote = asyncHandler(async (req, res) => {
+  res.json(await library.getNote(req.user._id, req.params.id));
+});
+
+export const downloadNote = asyncHandler(async (req, res) => {
+  const file = await library.downloadNote(req.user._id, req.params.id);
+  res.json(file);
+});

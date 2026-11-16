@@ -85,3 +85,25 @@ export const tenantFlagSchema = z.object({
     })
     .strict(),
 });
+
+/* ------------------------------------------------------------------ library */
+
+/** The shelf query. An unknown extra parameter is dropped, not refused: it is a client detail. */
+export const tenantBookListSchema = z.object({
+  query: z
+    .object({
+      q: z.string().trim().max(120).optional().default(''),
+      page: z.coerce.number().int().min(1).optional().default(1),
+      limit: z.coerce.number().int().min(1).max(50).optional().default(12),
+    })
+    .catchall(z.any()),
+});
+
+export const tenantBookParamSchema = z.object({
+  params: z.object({ bookId: objectId }).strict(),
+});
+
+export const tenantBookCheckoutSchema = z.object({
+  params: z.object({ bookId: objectId }).strict(),
+  body: z.object({ idempotencyKey: z.string().trim().min(1).max(120).optional() }).strict().optional(),
+});

@@ -33,4 +33,48 @@ router.post('/books/:id/bookmark', validate(bookIdSchema), library.toggleBookmar
 router.put('/books/:id/progress', validate(bookProgressSchema), library.saveProgress);
 router.get('/books/:id/download', downloadLimiter, validate(bookIdSchema), library.downloadBook);
 
+/** POST /api/library/books — create a new book (title, code, etc.) with fileKey: null and placeholder pages.
+ *  Requires a student pass (library entitlement). */
+router.post('/books', library.createBook);
+
+/** PUT /api/library/books/:id — update book metadata (title, code, price, visibility, bookType).
+ *  Requires a student pass (library entitlement). */
+router.put('/books/:id', validate(bookIdSchema), library.updateBook);
+
+/** DELETE /api/library/books/:id — remove a book from the shelf.
+ *  Requires a student pass (library entitlement). */
+router.delete('/books/:id', validate(bookIdSchema), library.deleteBook);
+
+/* ------------------------------------------------------------- file upload */
+
+/** POST /api/library/books/:id/upload — upload a PDF for the book.
+ *  Validates the file starts with `%PDF-`, stores to R2, creates placeholder pages.
+ *  Requires a student pass (library entitlement). */
+const uploadLimiter = sharedRateLimit({
+  name: 'library-upload',
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  key: (req) => `${req.user?._id ?? req.ip}:${req.params?.id ?? ''}`,
+});
+router.post(
+  '/books/:id/upload',
+  uploadLimiter,
+  validate(bookIdSchema),
+  library.uploadBookFile,
+);
+
 export default router;
+
+/* ------------------------------------------------------------- notes */
+
+/** GET /api/library/notes — list notes, filterable by subject */
+router.get('/notes', library.listNotes);
+
+/** POST /api/library/notes — create a note (requires library entitlement) */
+router.post('/notes', library.createNote);
+
+/** GET /api/library/notes/:id — view note detail */
+router.get('/notes/:id', library.getNote);
+
+/** GET /api/library/notes/:id/download — download note image */
+router.get('/notes/:id/download', library.downloadNote);

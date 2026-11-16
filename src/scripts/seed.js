@@ -1,6 +1,7 @@
 import { connectDB, disconnectDB } from '../config/db.js';
 import { Subject } from '../models/Subject.js';
 import { Question } from '../models/Question.js';
+import { seedLibrary } from './seed-library.js';
 import { logger } from '../utils/logger.js';
 
 // The fixed course list. Titles are sensible defaults an admin can edit later.
@@ -57,6 +58,12 @@ const run = async () => {
     }
   }
   logger.info(`Questions seeded: ${inserted} inserted, ${skipped} already present.`);
+
+  // The Library shelf: a fresh database should have a real shelf to browse. Idempotent by course
+  // code and page number, so re-running repairs it instead of duplicating. Files arrive separately
+  // (a book with no `fileKey` answers 403 on download, which is the honest state).
+  const library = await seedLibrary();
+  logger.info(`Library seeded: ${library.books} books, ${library.pages} pages.`);
 
   await disconnectDB();
   process.exit(0);

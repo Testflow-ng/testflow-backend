@@ -445,7 +445,8 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     const student = await account();
     const first = await checkout(student, 'pass_30d');
     await payAndWebhook(first);
-    const second = await checkout(student, 'pass_90d');
+    // Pro (`pass_90d`) is still marked coming soon, so a second Plus pass is the one on sale.
+    const second = await checkout(student, 'pass_30d');
     await payAndWebhook(second);
     assert.equal((await pages(student, books.one._id)).status, 200);
 
