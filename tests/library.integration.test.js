@@ -655,6 +655,18 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.equal(junk.status, 422);
   });
 
+  it('narrows the shelf to one course when asked', async () => {
+    const student = await account();
+    const one = await student.c.call('GET', '/library/books?subject=LIB101');
+    assert.equal(one.status, 200, JSON.stringify(one.json));
+    assert.equal(one.json.total, 1);
+    assert.equal(one.json.books[0].code, 'LIB101');
+    const lower = await student.c.call('GET', '/library/books?subject=lib101');
+    assert.equal(lower.json.total, 1, 'course codes normalise');
+    const none = await student.c.call('GET', '/library/books?subject=NOPE1');
+    assert.equal(none.json.total, 0);
+  });
+
   it('requires a session for every library route', async () => {
     const guest = client();
     assert.equal((await guest.call('GET', '/library/books')).status, 401);

@@ -101,13 +101,15 @@ const bookmarkedIds = async (userId, bookIds) => {
  * `q` searches code, title, subtitle, author and topics, case-insensitively. An unknown `filter`
  * is treated as `all` rather than refused, because the value comes from a client control and a
  * new one should not break the shelf. `bookType` and `level` narrow the shelf; both come from
- * fixed client controls and are validated by the schema.
+ * fixed client controls and are validated by the schema. `subject` is the course code (MTH101);
+ * an unknown code matches nothing.
  */
-export const listBooks = async (userId, { q = '', page = 1, limit = DEFAULT_LIMIT, filter = 'all', level = null, semester = null, bookType = null } = {}) => {
+export const listBooks = async (userId, { q = '', page = 1, limit = DEFAULT_LIMIT, filter = 'all', level = null, semester = null, bookType = null, subject = null } = {}) => {
   const where = { published: true };
   if (level != null) where.level = level;
   if (semester) where.semester = semester;
   if (bookType) where.bookType = bookType;
+  if (subject) where.code = String(subject).toUpperCase().trim();
 
   if (filter === 'bookmarks') {
     const saved = await BookBookmark.find({ user: userId }).select('book').lean();

@@ -21,6 +21,7 @@ export const listBooksSchema = z.object({
       level: z.coerce.number().int().min(1).optional(),
       semester: z.enum([...BOOK_SEMESTERS]).optional(),
       bookType: z.enum(['textbook', 'slides']).optional(),
+      subject: z.string().trim().max(24).optional(),
     })
     .catchall(z.any()),
 });
