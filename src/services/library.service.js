@@ -4,6 +4,7 @@ import { Note } from '../models/Note.js';
 import { BookPage } from '../models/BookPage.js';
 import { BookBookmark } from '../models/BookBookmark.js';
 import { BookReadingProgress } from '../models/BookReadingProgress.js';
+import { User } from '../models/User.js';
 import { hasEntitlement } from './studentPlan.service.js';
 import { presignGet } from '../utils/r2.js';
 
@@ -35,10 +36,21 @@ const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\
  * Reading and downloading need the `library` entitlement. Administrators manage the shelf, so
  * they are exempt; everyone else without a live pass is refused with the project's usual
  * `{ error: { code, message } }` body.
+ *
+ * Accepts either the authenticated user or a bare user id. The shelf write routes (create,
+ * update, delete, upload) pass `req.user._id`, so the role has to be read back before the
+ * admin exemption can be applied — checking `user?.role` on an id never matches and locked
+ * admins out of their own library.
  */
-const requireLibraryAccess = async (user) => {
-  if (ADMIN_ROLES.includes(user?.role)) return;
-  if (!(await hasEntitlement(user._id, 'library'))) {
+const requireLibraryAccess = async (userOrId) => {
+  const userId = userOrId?._id ?? userOrId;
+  let role = userOrId?.role;
+  if (!role && userId) {
+    const user = await User.findById(userId).select('role').lean();
+    role = user?.role;
+  }
+  if (ADMIN_ROLES.includes(role)) return;
+  if (!(await hasEntitlement(userId, 'library'))) {
     throw new AppError(402, 'PLAN_REQUIRED', 'Reading and downloading Library books needs a Student Pass.');
   }
 };
@@ -270,7 +282,7 @@ export const incrementBookmarkCount = async (bookId) => {
 
 
 /** Create a new book with fileKey: null and placeholder pages.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 export const createBook = async (userId, { code, title, subtitle, color, level, semester, pages, priceMinor = 0, visibility = 'all_students', bookType = 'textbook', description = '' }) => {
   await requireLibraryAccess(userId);
   // Default code upper-case; ensure unique
@@ -316,7 +328,7 @@ export const createBook = async (userId, { code, title, subtitle, color, level, 
 
 
 /** Update book metadata.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 export const updateBook = async (userId, bookId, updates) => {
   await requireLibraryAccess(userId);
   const allowed = ['title', 'subtitle', 'code', 'color', 'level', 'semester', 'priceMinor', 'visibility', 'bookType', 'description'];
@@ -338,7 +350,7 @@ export const updateBook = async (userId, bookId, updates) => {
 
 
 /** Delete a book from the shelf.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 export const deleteBook = async (userId, bookId) => {
   await requireLibraryAccess(userId);
   const book = await Book.findByIdAndDelete(bookId);
@@ -353,7 +365,7 @@ export const deleteBook = async (userId, bookId) => {
 
 /** POST /api/library/books/:id/upload — upload a PDF for the book.
  *  Validates the file starts with `%PDF-`, stores to R2, creates placeholder pages.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 export const uploadBookFile = async (userId, bookId, file) => {
   await requireLibraryAccess(userId);
   const book = await Book.findById(bookId);
@@ -406,7 +418,7 @@ export const listNotes = async (userId, { subject, visibility = 'all_students' }
   return notes;
 };
 
-/** Create a note (requires library entitlement). */
+/** Create a note (library entitlement; administrators are exempt). */
 export const createNote = async (userId, { subject, title, description, imageKey, pdfKey, visibility = 'all_students', bookType = 'slides' }) => {
   await requireLibraryAccess(userId);
   const note = await Note.create({

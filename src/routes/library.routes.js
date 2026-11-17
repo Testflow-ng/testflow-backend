@@ -34,22 +34,22 @@ router.put('/books/:id/progress', validate(bookProgressSchema), library.saveProg
 router.get('/books/:id/download', downloadLimiter, validate(bookIdSchema), library.downloadBook);
 
 /** POST /api/library/books — create a new book (title, code, etc.) with fileKey: null and placeholder pages.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 router.post('/books', library.createBook);
 
 /** PUT /api/library/books/:id — update book metadata (title, code, price, visibility, bookType).
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 router.put('/books/:id', validate(bookIdSchema), library.updateBook);
 
 /** DELETE /api/library/books/:id — remove a book from the shelf.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 router.delete('/books/:id', validate(bookIdSchema), library.deleteBook);
 
 /* ------------------------------------------------------------- file upload */
 
 /** POST /api/library/books/:id/upload — upload a PDF for the book.
  *  Validates the file starts with `%PDF-`, stores to R2, creates placeholder pages.
- *  Requires a student pass (library entitlement). */
+ *  Library entitlement; administrators are exempt. */
 const uploadLimiter = sharedRateLimit({
   name: 'library-upload',
   windowMs: 60 * 60 * 1000,
@@ -70,7 +70,7 @@ export default router;
 /** GET /api/library/notes — list notes, filterable by subject */
 router.get('/notes', library.listNotes);
 
-/** POST /api/library/notes — create a note (requires library entitlement) */
+/** POST /api/library/notes — create a note (library entitlement; administrators are exempt) */
 router.post('/notes', library.createNote);
 
 /** GET /api/library/notes/:id — view note detail */

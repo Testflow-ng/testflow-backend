@@ -500,6 +500,33 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.equal((await pages(student, books.one._id)).status, 402);
   });
 
+  it('lets an administrator publish, edit and remove a book without a pass', async () => {
+    const admin = await account('admin');
+    const code = `PUB${uniq().toUpperCase().slice(0, 5)}`;
+    const created = await admin.c.call('POST', '/library/books', {
+      body: { code, title: 'Admin published book', level: 100, semester: 'first', bookType: 'textbook', priceMinor: 0, visibility: 'all_students' },
+    });
+    assert.equal(created.status, 200, JSON.stringify(created.json));
+    assert.equal(created.json.code, code);
+    const bookId = created.json.id;
+
+    const updated = await admin.c.call('PUT', `/library/books/${bookId}`, { body: { title: 'Admin published, revised' } });
+    assert.equal(updated.status, 200, JSON.stringify(updated.json));
+    assert.equal(updated.json.title, 'Admin published, revised');
+
+    const removed = await admin.c.call('DELETE', `/library/books/${bookId}`);
+    assert.equal(removed.status, 200, JSON.stringify(removed.json));
+    assert.equal(removed.json.deleted, true);
+  });
+
+  it('still refuses shelf writes to a student without a pass', async () => {
+    const student = await account();
+    const code = `STU${uniq().toUpperCase().slice(0, 5)}`;
+    const created = await student.c.call('POST', '/library/books', { body: { code, title: 'Not allowed' } });
+    assert.equal(created.status, 402, JSON.stringify(created.json));
+    assert.equal(created.json.error.code, 'PLAN_REQUIRED');
+  });
+
   it('requires a session for every library route', async () => {
     const guest = client();
     assert.equal((await guest.call('GET', '/library/books')).status, 401);
