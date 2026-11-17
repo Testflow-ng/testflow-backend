@@ -519,6 +519,24 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.equal(removed.json.deleted, true);
   });
 
+  it('lets an administrator publish several books for the same course code', async () => {
+    const admin = await account('admin');
+    const code = `MULTI${uniq().slice(0, 3).toUpperCase()}`;
+    const first = await admin.c.call('POST', '/library/books', { body: { code, title: 'First MTH companion' } });
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    const second = await admin.c.call('POST', '/library/books', { body: { code, title: 'Second MTH companion', bookType: 'slides' } });
+    assert.equal(second.status, 200, JSON.stringify(second.json));
+    assert.notEqual(second.json.id, first.json.id);
+
+    // Codes still normalise to upper-case on update, and stay non-empty.
+    const renamed = await admin.c.call('PUT', `/library/books/${second.json.id}`, { body: { code: code.toLowerCase() } });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.json));
+    assert.equal(renamed.json.code, code);
+
+    assert.equal((await admin.c.call('DELETE', `/library/books/${first.json.id}`)).status, 200);
+    assert.equal((await admin.c.call('DELETE', `/library/books/${second.json.id}`)).status, 200);
+  });
+
   it('lets an administrator upload a book PDF without a pass', async () => {
     const admin = await account('admin');
     const code = `UPL${uniq().toUpperCase().slice(0, 5)}`;

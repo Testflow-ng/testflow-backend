@@ -290,11 +290,10 @@ export const incrementBookmarkCount = async (bookId) => {
  *  Library entitlement; administrators are exempt. */
 export const createBook = async (userId, { code, title, subtitle, color, level, semester, pages, priceMinor = 0, visibility = 'all_students', bookType = 'textbook', description = '' }) => {
   await requireLibraryAccess(userId);
-  // Default code upper-case; ensure unique
   const upperCode = (code || '').toUpperCase().trim();
   if (!upperCode) throw new AppError(400, 'INVALID_CODE', 'A code is required.');
-  const exists = await Book.findOne({ code: upperCode }).lean();
-  if (exists) throw new AppError(409, 'BOOK_EXISTS', 'A book with that code already exists.');
+  // A course code is shared by however many books the admin publishes for that course; uniqueness
+  // is not enforced on purpose.
   const doc = await Book.create({
     code: upperCode,
     title,
@@ -339,12 +338,11 @@ export const updateBook = async (userId, bookId, updates) => {
   const allowed = ['title', 'subtitle', 'code', 'color', 'level', 'semester', 'priceMinor', 'visibility', 'bookType', 'description'];
   const filtered = Object.fromEntries(Object.entries(updates).filter(([k]) => allowed.includes(k)));
 
-  // A course code is the book's identity on the shelf, so keep it upper-case and unique.
+  // Course codes are shared across every book for a course, so a code change only needs to be
+  // non-empty; uniqueness is deliberately not enforced.
   if (filtered.code !== undefined) {
     const upperCode = String(filtered.code).toUpperCase().trim();
     if (!upperCode) throw new AppError(400, 'INVALID_CODE', 'A code is required.');
-    const exists = await Book.findOne({ code: upperCode, _id: { $ne: bookId } }).lean();
-    if (exists) throw new AppError(409, 'BOOK_EXISTS', 'A book with that code already exists.');
     filtered.code = upperCode;
   }
 

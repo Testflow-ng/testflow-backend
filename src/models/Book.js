@@ -19,7 +19,9 @@ export const BOOK_LEVELS = Object.freeze([100, 200, 300, 400, 500]);
  */
 const bookSchema = new mongoose.Schema(
   {
-    code: { type: String, required: true, trim: true, uppercase: true, unique: true }, // e.g. MTH101
+    /** A course code identifies the course, not a single book: several books per course are expected
+     *  (textbook, slides, past questions), so this is deliberately not unique. */
+    code: { type: String, required: true, trim: true, uppercase: true },
     title: { type: String, required: true, trim: true },
     subtitle: { type: String, default: '', trim: true },
     description: { type: String, default: '', trim: true },
@@ -43,8 +45,6 @@ const bookSchema = new mongoose.Schema(
     topics: { type: [String], default: [] },
     /** R2 key of the downloadable file. Null until the file is uploaded: download answers 403. */
     fileKey: { type: String, default: null },
-    /** Book type: 'slides' or 'textbook' — used for UI filtering and pricing. */
-    bookType: { type: String, enum: ['slides', 'textbook'], default: 'textbook' },
     published: { type: Boolean, default: true },
     publishedAt: { type: Date, default: null },
   },
@@ -53,6 +53,7 @@ const bookSchema = new mongoose.Schema(
 
 // The shelf's own filters, in the order the list applies them.
 bookSchema.index({ published: 1, level: 1, semester: 1 });
+bookSchema.index({ code: 1 });
 // Case-insensitive search runs over these fields; a course code or a title is the common entry.
 bookSchema.index({ title: 1 });
 
