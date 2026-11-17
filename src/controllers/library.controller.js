@@ -60,7 +60,15 @@ export const listNotes = asyncHandler(async (req, res) => {
 });
 
 export const createNote = asyncHandler(async (req, res) => {
-  res.json(await library.createNote(req.user._id, req.body));
+  res.status(201).json(await library.createNote(req.user._id, req.body));
+});
+
+export const uploadNoteImages = asyncHandler(async (req, res) => {
+  res.json(await library.uploadNoteImages(req.user._id, req.params.id, req.files));
+});
+
+export const deleteNote = asyncHandler(async (req, res) => {
+  res.json(await library.deleteNote(req.user._id, req.params.id));
 });
 
 export const getNote = asyncHandler(async (req, res) => {

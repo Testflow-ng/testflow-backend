@@ -55,6 +55,23 @@ export const csvWithImages = (req, res, next) =>
     return next();
   });
 
+/** Note images: up to 10 per note, 2 MB each, all in memory (re-encoded to WebP in the service). */
+const noteImagesUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 10, fields: 4 },
+});
+
+export const noteImages = (field = 'images') => (req, res, next) =>
+  noteImagesUpload.array(field, 10)(req, res, (err) => {
+    if (err) {
+      const tooBig = err.code === 'LIMIT_FILE_SIZE';
+      const tooMany = err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE';
+      const code = tooBig ? 'FILE_TOO_LARGE' : tooMany ? 'NOTE_TOO_MANY_IMAGES' : 'INVALID_UPLOAD';
+      return next(new AppError(422, code, 'Send up to 10 images in the "images" field, 2 MB each.'));
+    }
+    return next();
+  });
+
 /**
  * One PDF book, held in memory and sent straight to the media store.
  *

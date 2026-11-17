@@ -3,10 +3,13 @@ import { Book } from '../models/Book.js';
 import { Note } from '../models/Note.js';
 import { BookPage } from '../models/BookPage.js';
 import { BookBookmark } from '../models/BookBookmark.js';
+import crypto from 'node:crypto';
 import { BookReadingProgress } from '../models/BookReadingProgress.js';
+import { Subject } from '../models/Subject.js';
 import { User } from '../models/User.js';
 import { hasEntitlement } from './studentPlan.service.js';
-import { presignGet } from '../utils/r2.js';
+import { presignGet, putObject, deleteObject } from '../utils/r2.js';
+import { prepareOrgImage } from './orgMedia.service.js';
 
 /**
  * The Library: a paged shelf, per-student bookmarks and reading progress, a reader that serves one
@@ -97,12 +100,14 @@ const bookmarkedIds = async (userId, bookIds) => {
  *
  * `q` searches code, title, subtitle, author and topics, case-insensitively. An unknown `filter`
  * is treated as `all` rather than refused, because the value comes from a client control and a
- * new one should not break the shelf.
+ * new one should not break the shelf. `bookType` and `level` narrow the shelf; both come from
+ * fixed client controls and are validated by the schema.
  */
-export const listBooks = async (userId, { q = '', page = 1, limit = DEFAULT_LIMIT, filter = 'all', level = null, semester = null } = {}) => {
+export const listBooks = async (userId, { q = '', page = 1, limit = DEFAULT_LIMIT, filter = 'all', level = null, semester = null, bookType = null } = {}) => {
   const where = { published: true };
   if (level != null) where.level = level;
   if (semester) where.semester = semester;
+  if (bookType) where.bookType = bookType;
 
   if (filter === 'bookmarks') {
     const saved = await BookBookmark.find({ user: userId }).select('book').lean();
@@ -406,54 +411,171 @@ export const uploadBookFile = async (userId, bookId, file) => {
 };
 
 
-/** List notes, filterable by subject. */
-export const listNotes = async (userId, { subject, visibility = 'all_students' } = {}) => {
+/**
+ * A note as every response uses it: identity, where it sits in the shelf and how many images it
+ * holds. Storage keys never leave the service — image access goes through `getNote`, which signs
+ * short-lived URLs, so a link cannot be harvested from a list response and reused.
+ */
+const toNoteView = (note) => ({
+  id: String(note._id),
+  title: note.title,
+  description: note.description ?? '',
+  subjectCode: note.subject?.code ?? '',
+  subjectTitle: note.subject?.title ?? '',
+  level: note.level ?? 100,
+  semester: note.semester ?? 'first',
+  imageCount: (note.images?.length ?? 0) + (note.imageKey ? 1 : 0),
+  visibility: note.visibility ?? 'all_students',
+  createdAt: note.createdAt,
+});
+
+/**
+ * GET /api/library/notes
+ *
+ * The crowd-sourced half of the shelf: scanned handwriting, usually images, tagged by course and
+ * level. `subject` takes the course code (`MTH201`), `level` the numeric class level. Paged like
+ * the books list.
+ */
+export const listNotes = async (userId, { q = '', page = 1, limit = DEFAULT_LIMIT, subject, level = null, semester = null, visibility = 'all_students' } = {}) => {
   await requireLibraryAccess(userId);
   const where = { visibility };
-  if (subject) where.subject = subject;
+  if (subject) {
+    const code = String(subject).toUpperCase().trim();
+    const doc = await Subject.findOne({ code }).select('_id').lean();
+    // An unknown course code matches nothing rather than everything.
+    where.subject = doc?._id ?? { $in: [] };
+  }
+  if (level != null) where.level = Number(level);
+  if (semester) where.semester = semester;
+
+  const needle = String(q ?? '').trim();
+  if (needle) {
+    const rx = new RegExp(escapeRegExp(needle), 'i');
+    where.$or = [{ title: rx }, { description: rx }];
+  }
+
+  const safeLimit = Math.min(Math.max(1, Number(limit) || DEFAULT_LIMIT), MAX_LIMIT);
+  const total = await Note.countDocuments(where);
+  const pageCount = Math.max(1, Math.ceil(total / safeLimit));
+  const current = Math.min(Math.max(1, Number(page) || 1), pageCount);
+
   const notes = await Note.find(where)
     .populate('subject', 'code title')
-    .sort({ createdAt: -1 })
+    .sort({ level: 1, createdAt: -1 })
+    .skip((current - 1) * safeLimit)
+    .limit(safeLimit)
     .lean();
-  return notes;
+  return { notes: notes.map(toNoteView), page: current, pageCount, total };
 };
 
-/** Create a note (library entitlement; administrators are exempt). */
-export const createNote = async (userId, { subject, title, description, imageKey, pdfKey, visibility = 'all_students', bookType = 'slides' }) => {
+/**
+ * Create a note (library entitlement; administrators are exempt).
+ *
+ * The course anchors the note: images and level are mapped to it. `subjectCode` is required —
+ * a note floating free of a course is noise on the shelf. Level defaults to the course's level,
+ * then 100.
+ */
+export const createNote = async (userId, { subjectCode, title, description, level, semester, visibility = 'all_students' }) => {
   await requireLibraryAccess(userId);
+  const code = String(subjectCode ?? '').toUpperCase().trim();
+  if (!code) throw new AppError(400, 'SUBJECT_REQUIRED', 'Pick the course this note belongs to.');
+  const subjectDoc = await Subject.findOne({ code }).select('_id level').lean();
+  if (!subjectDoc) throw new AppError(400, 'SUBJECT_NOT_FOUND', 'No course with that code exists.');
+
+  const lvl = Number(level) || parseInt(String(subjectDoc.level ?? ''), 10) || 100;
   const note = await Note.create({
-    subject,
+    subject: subjectDoc._id,
     title,
     description: description ?? '',
-    imageKey: imageKey ?? null,
-    pdfKey: pdfKey ?? null,
+    images: [],
+    level: lvl,
+    semester: semester ?? 'first',
     visibility,
-    bookType,
     uploadedBy: userId,
   });
-  return note;
+  const full = await Note.findById(note._id).populate('subject', 'code title').lean();
+  return toNoteView(full);
 };
 
-/** Get a note by ID. */
+/**
+ * Attach images to a note (library entitlement; administrators are exempt).
+ *
+ * Up to 10 images per note, in reading order. Each image is decoded, re-encoded to WebP and put
+ * straight to the media store like every other image in the app — never held beyond this call.
+ */
+export const uploadNoteImages = async (userId, noteId, files) => {
+  await requireLibraryAccess(userId);
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new AppError(400, 'NO_FILES', 'Send one or more images in the "images" field.');
+  }
+  const note = await Note.findById(noteId);
+  if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
+  const existing = note.images?.length ?? 0;
+  if (existing + files.length > 10) {
+    throw new AppError(422, 'NOTE_TOO_MANY_IMAGES', `A note can hold 10 images; this one has ${existing}.`);
+  }
+
+  const keys = [];
+  try {
+    for (const file of files) {
+      const prepared = await prepareOrgImage(file.buffer);
+      const key = `notes/${note._id}/${crypto.randomUUID()}.${prepared.ext}`;
+      await putObject(key, prepared.buffer, prepared.contentType);
+      keys.push(key);
+    }
+  } catch (err) {
+    // Nothing half-stores: if one image fails, the ones before it are removed too.
+    await Promise.all(keys.map((key) => deleteObject(key).catch(() => {})));
+    throw err;
+  }
+
+  note.images = [...(note.images ?? []), ...keys];
+  await note.save();
+  const full = await Note.findById(note._id).populate('subject', 'code title').lean();
+  return toNoteView(full);
+};
+
+/**
+ * Get a note by ID (library entitlement; administrators are exempt).
+ *
+ * Reading is the gated part, so this is where the images are signed: short-lived URLs, one per
+ * page, and nothing stores them.
+ */
 export const getNote = async (userId, noteId) => {
   await requireLibraryAccess(userId);
   const note = await Note.findById(noteId).populate('subject', 'code title').lean();
   if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
-  return note;
+  const imageUrls = (note.images ?? []).map(
+    (key) => presignGet(key, { expiresSec: 60 * 60 }).url,
+  );
+  // Notes saved before multi-image existed carry a single legacy key; sign that too when set.
+  if (note.imageKey) imageUrls.push(presignGet(note.imageKey, { expiresSec: 60 * 60 }).url);
+  return { ...toNoteView(note), imageUrls };
 };
 
-/** Download a note image. */
+/** Remove a note and its images from the media store (library entitlement; administrators are exempt). */
+export const deleteNote = async (userId, noteId) => {
+  await requireLibraryAccess(userId);
+  const note = await Note.findById(noteId);
+  if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
+  const keys = [...(note.images ?? []), ...(note.imageKey ? [note.imageKey] : [])];
+  await Note.deleteOne({ _id: note._id });
+  await Promise.all(keys.map((key) => deleteObject(key).catch(() => {})));
+  return { id: String(note._id), deleted: true };
+};
+
+/** Download the first image of a note. */
 export const downloadNote = async (userId, noteId) => {
   await requireLibraryAccess(userId);
   const note = await Note.findById(noteId);
   if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
-  if (!note.imageKey) throw new AppError(404, 'NOTE_NO_IMAGE', 'This note has no image attached.');
-  const { presignGet } = await import('../utils/r2.js');
+  const key = note.images?.[0] ?? note.imageKey;
+  if (!key) throw new AppError(404, 'NOTE_NO_IMAGE', 'This note has no image attached.');
   const fileName = `${note.title}.png`;
-  const signed = presignGet(note.imageKey, {
+  const signed = presignGet(key, {
     expiresSec: 60 * 60,
     fileName,
     contentType: 'image/png',
   });
-  return { url: signed.url, fileName, key: note.imageKey };
+  return { url: signed.url, fileName, key: signed.key };
 };

@@ -519,12 +519,122 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.equal(removed.json.deleted, true);
   });
 
+  it('lets an administrator upload a book PDF without a pass', async () => {
+    const admin = await account('admin');
+    const code = `UPL${uniq().toUpperCase().slice(0, 5)}`;
+    const created = await admin.c.call('POST', '/library/books', { body: { code, title: 'Upload target' } });
+    assert.equal(created.status, 200, JSON.stringify(created.json));
+    const bookId = created.json.id;
+
+    const jar = admin.c.jar;
+    const cookie = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const fd = new FormData();
+    fd.append('file', new Blob([Buffer.from('%PDF-1.4\n% test\n')], { type: 'application/pdf' }), 'book.pdf');
+    const res = await fetch(`${base}/api/library/books/${bookId}/upload`, {
+      method: 'POST',
+      headers: { Cookie: cookie, ...(jar.tf_csrf ? { 'X-CSRF-Token': jar.tf_csrf } : {}) },
+      body: fd,
+    });
+    const text = await res.text();
+    const json = text ? JSON.parse(text) : null;
+    assert.equal(res.status, 200, JSON.stringify(json));
+    assert.ok(json.url, 'the upload signs a file url');
+    assert.ok(json.key, 'the upload reports the stored key');
+
+    await admin.c.call('DELETE', `/library/books/${bookId}`);
+  });
+
   it('still refuses shelf writes to a student without a pass', async () => {
     const student = await account();
     const code = `STU${uniq().toUpperCase().slice(0, 5)}`;
     const created = await student.c.call('POST', '/library/books', { body: { code, title: 'Not allowed' } });
     assert.equal(created.status, 402, JSON.stringify(created.json));
     assert.equal(created.json.error.code, 'PLAN_REQUIRED');
+  });
+
+  it('lets an administrator publish a note with images, mapped to course and level', async () => {
+    const { Subject } = await import('../src/models/Subject.js');
+    const sharp = (await import('sharp')).default;
+    // Fake the object store: notes images land in memory and can be asserted on.
+    const stored = new Map();
+    const { setR2ForTests } = await import('../src/utils/r2.js');
+    setR2ForTests({
+      putObject: async (key, body, contentType) => { stored.set(key, { body, contentType }); },
+      deleteObject: async (key) => { stored.delete(key); },
+    });
+    const code = `MTH${uniq().slice(0, 3).toUpperCase()}`;
+    await Subject.create({ code, title: 'Test Mathematics', level: '100' });
+
+    const admin = await account('admin');
+
+    const unpicked = await admin.c.call('POST', '/library/notes', { body: { title: 'No course' } });
+    assert.equal(unpicked.status, 422, 'a note must be mapped to a course');
+    const unknown = await admin.c.call('POST', '/library/notes', { body: { subjectCode: 'ZZZ999', title: 'No such course' } });
+    assert.equal(unknown.status, 400);
+
+    const created = await admin.c.call('POST', '/library/notes', {
+      body: { subjectCode: code, title: 'Limits, week 3', level: '100', semester: 'first' },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    assert.equal(created.json.subjectCode, code);
+    assert.equal(created.json.imageCount, 0);
+    const noteId = created.json.id;
+
+    // Attach two images in one request, like the console does.
+    const png = async (color) => sharp({ create: { width: 8, height: 8, channels: 3, background: color } }).png().toBuffer();
+    const fd = new FormData();
+    fd.append('images', new Blob([await png({ r: 200, g: 120, b: 40 })], { type: 'image/png' }), 'page1.png');
+    fd.append('images', new Blob([await png({ r: 30, g: 90, b: 160 })], { type: 'image/png' }), 'page2.png');
+    const jar = admin.c.jar;
+    const uploadRes = await fetch(`${base}/api/library/notes/${noteId}/images`, {
+      method: 'POST',
+      headers: { Cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; '), ...(jar.tf_csrf ? { 'X-CSRF-Token': jar.tf_csrf } : {}) },
+      body: fd,
+    });
+    const uploadJson = await uploadRes.json();
+    assert.equal(uploadRes.status, 200, JSON.stringify(uploadJson));
+    assert.equal(uploadJson.imageCount, 2);
+    assert.equal(stored.size, 2, 'both images were stored');
+    for (const key of stored.keys()) assert.match(key, /^notes\/[^/]+\/.+\.webp$/, 'stored as re-encoded webp under the note');
+
+    // The detail signs short-lived image URLs and never exposes storage keys.
+    const detail = await admin.c.call('GET', `/library/notes/${noteId}`);
+    assert.equal(detail.status, 200, JSON.stringify(detail.json));
+    assert.equal(detail.json.imageUrls.length, 2);
+    assert.equal(detail.json.subjectCode, code);
+    assert.ok(!('images' in detail.json), 'storage keys are not returned as data');
+
+    // The notes list carries it, filtered by course and level, without keys either.
+    const list = await admin.c.call('GET', `/library/notes?subject=${code}&level=100`);
+    assert.equal(list.status, 200, JSON.stringify(list.json));
+    assert.equal(list.json.total, 1);
+    assert.equal(list.json.notes[0].imageCount, 2);
+    assert.ok(!JSON.stringify(list.json).includes('notes/'));
+    const wrongLevel = await admin.c.call('GET', `/library/notes?subject=${code}&level=200`);
+    assert.equal(wrongLevel.json.total, 0);
+
+    // A free student is refused the same content the books gate protects.
+    const student = await account();
+    assert.equal((await student.c.call('GET', `/library/notes?subject=${code}`)).status, 402);
+    const passHolder = await withPass('student', 30);
+    assert.equal((await passHolder.c.call('GET', `/library/notes?subject=${code}`)).status, 200);
+
+    const removed = await admin.c.call('DELETE', `/library/notes/${noteId}`);
+    assert.equal(removed.status, 200, JSON.stringify(removed.json));
+    assert.equal(stored.size, 0, 'deleting the note removed its images from the store');
+    assert.equal((await admin.c.call('GET', `/library/notes/${noteId}`)).status, 404);
+    setR2ForTests(null);
+  });
+
+  it('narrows the shelf to textbooks or slides', async () => {
+    const student = await account();
+    const slides = await student.c.call('GET', '/library/books?bookType=slides');
+    assert.equal(slides.status, 200, JSON.stringify(slides.json));
+    assert.equal(slides.json.total, 0, 'the fixture shelf is all textbooks');
+    const textbooks = await student.c.call('GET', '/library/books?bookType=textbook');
+    assert.equal(textbooks.json.total, shelfCount);
+    const junk = await student.c.call('GET', '/library/books?bookType=wooden');
+    assert.equal(junk.status, 422);
   });
 
   it('requires a session for every library route', async () => {

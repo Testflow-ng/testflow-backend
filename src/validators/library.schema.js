@@ -20,8 +20,40 @@ export const listBooksSchema = z.object({
       filter: z.string().trim().max(32).optional().default('all'),
       level: z.coerce.number().int().min(1).optional(),
       semester: z.enum([...BOOK_SEMESTERS]).optional(),
+      bookType: z.enum(['textbook', 'slides']).optional(),
     })
     .catchall(z.any()),
+});
+
+/** The notes query. `subject` is the course code; unknown values match nothing rather than refuse. */
+export const listNotesSchema = z.object({
+  query: z
+    .object({
+      q: z.string().trim().max(120).optional().default(''),
+      page: z.coerce.number().int().min(1).optional().default(1),
+      limit: z.coerce.number().int().min(1).max(50).optional().default(12),
+      subject: z.string().trim().max(24).optional(),
+      level: z.coerce.number().int().min(1).optional(),
+      semester: z.enum([...BOOK_SEMESTERS]).optional(),
+    })
+    .catchall(z.any()),
+});
+
+export const noteIdSchema = z.object({
+  params: z.object({ id: objectId }),
+});
+
+export const createNoteSchema = z.object({
+  body: z
+    .object({
+      subjectCode: z.string().trim().min(1).max(16),
+      title: z.string().trim().min(1).max(200),
+      description: z.string().trim().max(500).optional().default(''),
+      level: z.coerce.number().int().min(1).optional(),
+      semester: z.enum([...BOOK_SEMESTERS]).optional().default('first'),
+      visibility: z.enum(['all_students', 'paid']).optional().default('all_students'),
+    })
+    .strict(),
 });
 
 export const bookIdSchema = z.object({

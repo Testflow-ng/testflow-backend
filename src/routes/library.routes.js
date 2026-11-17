@@ -3,7 +3,8 @@ import * as library from '../controllers/library.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { validate } from '../middleware/validate.js';
 import { sharedRateLimit } from '../middleware/rateLimit.js';
-import { bookIdSchema, bookPagesSchema, bookProgressSchema, listBooksSchema } from '../validators/library.schema.js';
+import { bookIdSchema, bookPagesSchema, bookProgressSchema, listBooksSchema, listNotesSchema, noteIdSchema, createNoteSchema } from '../validators/library.schema.js';
+import { singleBookFile, noteImages } from '../middleware/uploadImage.js';
 
 /**
  * The Library shelf, the reader, bookmarks, reading progress and the file download.
@@ -59,22 +60,40 @@ const uploadLimiter = sharedRateLimit({
 router.post(
   '/books/:id/upload',
   uploadLimiter,
+  singleBookFile(),
   validate(bookIdSchema),
   library.uploadBookFile,
 );
 
-export default router;
 
 /* ------------------------------------------------------------- notes */
 
-/** GET /api/library/notes — list notes, filterable by subject */
-router.get('/notes', library.listNotes);
+/** GET /api/library/notes — paged notes, filterable by course (`subject`), level and semester.
+ *  Library entitlement; administrators are exempt. */
+router.get('/notes', validate(listNotesSchema), library.listNotes);
 
-/** POST /api/library/notes — create a note (library entitlement; administrators are exempt) */
-router.post('/notes', library.createNote);
+/** POST /api/library/notes — create a note; images are attached next, against the new id.
+ *  Library entitlement; administrators are exempt. */
+router.post('/notes', validate(createNoteSchema), library.createNote);
 
-/** GET /api/library/notes/:id — view note detail */
-router.get('/notes/:id', library.getNote);
+/** POST /api/library/notes/:id/images — attach up to 10 images (2 MB each) to a note.
+ *  Library entitlement; administrators are exempt. */
+const noteImagesLimiter = sharedRateLimit({
+  name: 'library-note-images',
+  windowMs: 60 * 60 * 1000,
+  max: 12,
+  key: (req) => `${req.user?._id ?? req.ip}:${req.params?.id ?? ''}`,
+});
+router.post('/notes/:id/images', noteImagesLimiter, noteImages(), validate(noteIdSchema), library.uploadNoteImages);
+
+/** DELETE /api/library/notes/:id — remove a note and its images from the media store.
+ *  Library entitlement; administrators are exempt. */
+router.delete('/notes/:id', validate(noteIdSchema), library.deleteNote);
+
+/** GET /api/library/notes/:id — note detail with short-lived URLs for its images */
+router.get('/notes/:id', validate(noteIdSchema), library.getNote);
 
 /** GET /api/library/notes/:id/download — download note image */
 router.get('/notes/:id/download', library.downloadNote);
+
+export default router;

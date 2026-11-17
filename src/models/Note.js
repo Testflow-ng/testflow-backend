@@ -29,10 +29,25 @@ const noteSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
-    /** R2 key for the note image (scanned handwritten page, whiteboard photo, etc.) */
+    /** Legacy single image (pre multi-image notes); kept so nothing breaks. */
     imageKey: {
       type: String,
       default: null,
+    },
+    /** R2 keys for the note's images, in reading order (max 10, enforced in the service). */
+    images: {
+      type: [String],
+      default: [],
+    },
+    /** Where the note sits in the shelf: the course level and semester it was taken in. */
+    level: {
+      type: Number,
+      default: 100,
+    },
+    semester: {
+      type: String,
+      enum: ['first', 'second'],
+      default: 'first',
     },
     /** Optional PDF if the note was typed up */
     pdfKey: {
@@ -65,5 +80,6 @@ const noteSchema = new mongoose.Schema(
 // Indexes for fast subject + visibility lookups
 noteSchema.index({ subject: 1, visibility: 1 });
 noteSchema.index({ subject: 1, createdAt: -1 });
+noteSchema.index({ level: 1, semester: 1 });
 
 export const Note = mongoose.model('Note', noteSchema);
