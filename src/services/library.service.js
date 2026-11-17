@@ -319,8 +319,18 @@ export const createBook = async (userId, { code, title, subtitle, color, level, 
  *  Requires a student pass (library entitlement). */
 export const updateBook = async (userId, bookId, updates) => {
   await requireLibraryAccess(userId);
-  const allowed = ['title', 'subtitle', 'color', 'priceMinor', 'visibility', 'bookType', 'description'];
+  const allowed = ['title', 'subtitle', 'code', 'color', 'level', 'semester', 'priceMinor', 'visibility', 'bookType', 'description'];
   const filtered = Object.fromEntries(Object.entries(updates).filter(([k]) => allowed.includes(k)));
+
+  // A course code is the book's identity on the shelf, so keep it upper-case and unique.
+  if (filtered.code !== undefined) {
+    const upperCode = String(filtered.code).toUpperCase().trim();
+    if (!upperCode) throw new AppError(400, 'INVALID_CODE', 'A code is required.');
+    const exists = await Book.findOne({ code: upperCode, _id: { $ne: bookId } }).lean();
+    if (exists) throw new AppError(409, 'BOOK_EXISTS', 'A book with that code already exists.');
+    filtered.code = upperCode;
+  }
+
   const book = await Book.findByIdAndUpdate(bookId, { $set: filtered }, { new: true, runValidators: true }).lean();
   if (!book) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book is not on the shelf.');
   return toBookView(book);
