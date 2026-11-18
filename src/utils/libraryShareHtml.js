@@ -74,6 +74,38 @@ const formatSize = (bytes) => {
   return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 };
 
+/**
+ * The gate a share link puts in front of the download. The link holder could not be verified as a
+ * pass holder — either they are not signed in, or their pass lapsed. Reading stays free either way:
+ * this page is served instead of the file, never instead of the page.
+ */
+export const passRequiredPageHtml = ({ clientUrl, keepReadingUrl }) => {
+  const title = 'Downloads need a Student Pass';
+  const description = 'This shared book is free to read here. Downloading it needs a TestFlow Student Pass.';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    ${head({ title, description, url: keepReadingUrl ?? clientUrl, imageUrl: `${clientUrl}/og-image.png`, imageAlt: 'TestFlow', robots: 'noindex' })}
+    <style>${LAYOUT}</style>
+  </head>
+  <body>
+    <div class="wordmark">TestFlow Library</div>
+    <main class="sheet">
+      <h1>${escapeHtml(title)}</h1>
+      <p class="meta">This share link is free to <b>read</b> — anyone with it can open the book.</p>
+      <p class="desc">Taking the PDF with you (offline reading, print, notes) is part of the Student Pass — the same one that unlocks the whole library, past questions and Live CBT.</p>
+      <div class="actions">
+        <a class="cta" href="${escapeHtml(`${clientUrl}/billing`)}">Get a Student Pass</a>
+        ${keepReadingUrl ? `<a class="cta secondary" href="${escapeHtml(keepReadingUrl)}">Keep reading</a>` : ''}
+      </div>
+      <p class="meta" style="margin-top:12px">Already have a pass? <a href="${escapeHtml(`${clientUrl}/login`)}" style="color:#4a35f0;font-weight:600">Sign in</a> and the download will just work.</p>
+    </main>
+    ${foot(clientUrl)}
+  </body>
+</html>`;
+};
+
 const foot = (clientUrl) =>
   `<p class="foot"><span class="brand">TestFlow</span> — past questions and study material for OAU students.<br /><a href="${escapeHtml(
     clientUrl,
@@ -109,6 +141,7 @@ export const bookPageHtml = ({ book, url, cardUrl, fileUrl, downloadUrl, clientU
         <a class="cta" href="${escapeHtml(downloadUrl)}">Download PDF</a>
         <a class="cta secondary" href="${escapeHtml(fileUrl)}">Read in browser</a>
       </div>
+      <p class="meta" style="margin-top:10px">Free to read here · <b>downloads need a Student Pass</b></p>
       <iframe class="reader" src="${escapeHtml(fileUrl)}" title="${escapeHtml(title)}"></iframe>`
           : '<p class="desc">The file for this book has not been uploaded yet.</p>'
       }

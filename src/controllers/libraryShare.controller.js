@@ -6,10 +6,11 @@ import { getObjectBuffer } from '../utils/r2.js';
 import { logger } from '../utils/logger.js';
 import { missingPageHtml } from '../utils/shareHtml.js';
 import { contentDisposition } from '../utils/contentDisposition.js';
-import { bookPageHtml, notePageHtml } from '../utils/libraryShareHtml.js';
+import { bookPageHtml, notePageHtml, passRequiredPageHtml } from '../utils/libraryShareHtml.js';
 import * as share from '../services/libraryShare.service.js';
 import { libraryShareCardPng } from '../services/ogImage.service.js';
-import { bookFileName } from '../services/library.service.js';
+import { bookFileName, requireLibraryAccess } from '../services/library.service.js';
+import { optionalUser } from '../middleware/authenticate.js';
 import { Book } from '../models/Book.js';
 
 /**
@@ -92,8 +93,33 @@ export const bookFile = asyncHandler(async (req, res) => {
     return res.status(404).type('text/plain').send('The file for this book could not be found.');
   }
 
+  /* Reading the page (and the inline embed) is free; downloading is not. The gate is the same
+     one the in-app library uses: an administrator, or anyone holding the library entitlement.
+     Everyone else gets an HTML page that sells the pass instead of a naked 402. */
   const wantDownload = ['1', 'true'].includes(String(req.query.download ?? '').toLowerCase());
   if (wantDownload) {
+    let allowed = false;
+    const gateUser = await optionalUser(req);
+    if (gateUser) {
+      try {
+        await requireLibraryAccess(gateUser);
+        allowed = true;
+      } catch {
+        allowed = false;
+      }
+    }
+    if (!allowed) {
+      return res
+        .status(402)
+        .type('html')
+        .set('Cache-Control', 'no-store')
+        .send(
+          passRequiredPageHtml({
+            clientUrl: config.CLIENT_URL,
+            keepReadingUrl: `${originOf(req)}/s/book/${req.params.token}`,
+          }),
+        );
+    }
     await Book.updateOne({ _id: book.id }, { $inc: { downloadCount: 1 } }).catch(() => {});
   }
 

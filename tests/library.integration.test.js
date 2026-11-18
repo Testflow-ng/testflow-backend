@@ -602,16 +602,27 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.match(html, new RegExp(code));
     assert.match(html, /share-target|Share Target/);
 
-    // The file itself streams, byte for byte.
+    // Viewing inline stays free — no session required.
     const fileRes = await fetch(`${shareUrl}/file`);
     assert.equal(fileRes.status, 200);
     assert.equal(fileRes.headers.get('content-type'), 'application/pdf');
     assert.ok(Buffer.from(await fileRes.arrayBuffer()).equals(pdf), 'the shared file is the uploaded PDF');
 
-    // A download through the public link increments the counter.
-    const dlRes = await fetch(`${shareUrl}/file?download=1`);
-    assert.equal(dlRes.status, 200);
-    assert.match(dlRes.headers.get('content-disposition') ?? '', /^attachment/);
+    // A download through the public link requires a pass: anonymous gets the pass-sell page.
+    const anonDl = await fetch(`${shareUrl}/file?download=1`);
+    assert.equal(anonDl.status, 402);
+    assert.match(anonDl.headers.get('content-type') ?? '', /text\/html/);
+    assert.match(await anonDl.text(), /Student Pass/);
+    const countedAfterAnon = await m.Book.findById(bookId).lean();
+    assert.equal(countedAfterAnon.downloadCount, 0, 'the blocked download does not count');
+
+    // A student holding a pass gets the file, byte for byte, and the counter moves.
+    const passHolder = await withPass('student', 30);
+    const passCookie = Object.entries(passHolder.c.jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const passDl = await fetch(`${shareUrl}/file?download=1`, { headers: { Cookie: passCookie } });
+    assert.equal(passDl.status, 200);
+    assert.match(passDl.headers.get('content-disposition') ?? '', /^attachment/);
+    assert.ok(Buffer.from(await passDl.arrayBuffer()).equals(pdf), 'the pass-holders download is the uploaded PDF');
     const counted = await m.Book.findById(bookId).lean();
     assert.equal(counted.downloadCount, 1);
 
