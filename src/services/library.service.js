@@ -8,8 +8,9 @@ import { BookReadingProgress } from '../models/BookReadingProgress.js';
 import { Subject } from '../models/Subject.js';
 import { User } from '../models/User.js';
 import { hasEntitlement } from './studentPlan.service.js';
-import { presignGet, putObject, deleteObject } from '../utils/r2.js';
+import { presignGet, putObject, deleteObject, getObjectBuffer } from '../utils/r2.js';
 import { prepareOrgImage } from './orgMedia.service.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * The Library: a paged shelf, per-student bookmarks and reading progress, a reader that serves one
@@ -33,7 +34,34 @@ export const MAX_LIMIT = 50;
 /** Long enough for a slow download to start, short enough that a forwarded link dies quickly. */
 export const DOWNLOAD_TTL_SEC = 60 * 60;
 
+/**
+ * The one file key a book actually has, or null.
+ *
+ * The previous upload handler minted `fileKey: temp-<id>` without ever storing the bytes, so a
+ * key with that shape points at nothing. Treating it as absent heals old rows automatically: the
+ * reader falls back to placeholder pages, the share page hides its file buttons, and a re-upload
+ * replaces the key with a real one.
+ */
+export const usableFileKey = (book) => {
+  const key = book?.fileKey;
+  if (!key || String(key).startsWith('temp-')) return null;
+  return key;
+};
+
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * A suggested filename that cannot break the signed `Content-Disposition` header or a browser's
+ * save dialog: path separators, quotes and control characters are flattened to spaces.
+ */
+const safeFileName = (raw, ext) => {
+  const safe = String(raw ?? '').replace(/["\\/\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${safe || 'download'}.${ext}`;
+};
+const fileNameFor = (book) => safeFileName(`${book.code} - ${book.title}`, 'pdf');
+
+/** Suggested filename for a book's PDF, reused by the public share download. */
+export const bookFileName = (book) => fileNameFor(book);
 
 /**
  * Reading and downloading need the `library` entitlement. Administrators manage the shelf, so
@@ -45,7 +73,7 @@ const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\
  * admin exemption can be applied — checking `user?.role` on an id never matches and locked
  * admins out of their own library.
  */
-const requireLibraryAccess = async (userOrId) => {
+export const requireLibraryAccess = async (userOrId) => {
   const userId = userOrId?._id ?? userOrId;
   let role = userOrId?.role;
   if (!role && userId) {
@@ -59,7 +87,7 @@ const requireLibraryAccess = async (userOrId) => {
 };
 
 /** A book that is not on the shelf does not exist: unpublished and unknown read the same. */
-const requireBook = async (bookId) => {
+export const requireBook = async (bookId) => {
   const book = await Book.findOne({ _id: bookId, published: true }).lean();
   if (!book) throw new AppError(404, 'BOOK_NOT_FOUND', 'That book is not on the shelf.');
   return book;
@@ -85,6 +113,11 @@ const toBookView = (book, bookmarked = false) => ({
   topics: book.topics ?? [],
   description: book.description ?? '',
   bookmarked: Boolean(bookmarked),
+  /** Whether a usable PDF has been uploaded. Never leaks where the file lives. */
+  hasFile: Boolean(usableFileKey(book)),
+  /** `all_students | paid`. Paid items cannot be shared publicly. */
+  visibility: book.visibility ?? 'all_students',
+  priceMinor: book.priceMinor ?? 0,
   updatedAt: book.updatedAt,
 });
 
@@ -251,24 +284,42 @@ export const getBookDownload = async (user, bookId) => {
   await requireLibraryAccess(user);
   const book = await requireBook(bookId);
 
-  if (!book.fileKey) {
+  const fileKey = usableFileKey(book);
+  if (!fileKey) {
     throw new AppError(403, 'DOWNLOAD_NOT_AVAILABLE', 'That book has no downloadable file yet.');
   }
 
-  const fileName = `${book.code} - ${book.title}.pdf`;
+  const fileName = fileNameFor(book);
   const cacheKey = `${user._id}:${book._id}`;
   const hit = reused.get(cacheKey);
   if (hit && hit.expiresAtMs - Date.now() > REUSE_MARGIN_MS) {
     return { url: hit.url, fileName, sizeBytes: book.sizeBytes ?? 0, expiresAt: hit.expiresAt };
   }
 
-  const signed = presignGet(book.fileKey, { expiresSec: DOWNLOAD_TTL_SEC, fileName, contentType: 'application/pdf' });
+  const signed = presignGet(fileKey, { expiresSec: DOWNLOAD_TTL_SEC, fileName, contentType: 'application/pdf' });
   if (reused.size >= REUSE_MAX) reused.clear();
   reused.set(cacheKey, { url: signed.url, expiresAt: signed.expiresAt, expiresAtMs: new Date(signed.expiresAt).getTime() });
 
   return { url: signed.url, fileName, sizeBytes: book.sizeBytes ?? 0, expiresAt: signed.expiresAt };
 };
 
+
+/**
+ * GET /api/library/books/:id/file
+ * The PDF bytes, inline, for the reader. Same pass gate as the pages endpoint — the reader needs
+ * the file to render a single page anyway — and it never hands out the storage key.
+ */
+export const getBookFile = async (user, bookId) => {
+  await requireLibraryAccess(user);
+  const book = await requireBook(bookId);
+
+  const fileKey = usableFileKey(book);
+  if (!fileKey) {
+    throw new AppError(403, 'DOWNLOAD_NOT_AVAILABLE', 'That book has no downloadable file yet.');
+  }
+  const object = await getObjectBuffer(fileKey);
+  return { buffer: object.buffer, fileName: fileNameFor(book) };
+};
 
 /** Increment the download counter for a book. */
 export const incrementDownloadCount = async (bookId) => {
@@ -363,14 +414,16 @@ export const deleteBook = async (userId, bookId) => {
   // Best-effort: remove placeholder pages
   await BookPage.deleteMany({ book: bookId }).catch(() => {});
   // Optionally remove from R2 if fileKey exists
-  if (book.fileKey) await (await import('../utils/r2.js')).deleteObject(book.fileKey).catch(() => {});
+  if (usableFileKey(book)) await (await import('../utils/r2.js')).deleteObject(book.fileKey).catch(() => {});
   return { id: String(book._id), deleted: true };
 };
 
 
-/** POST /api/library/books/:id/upload — upload a PDF for the book.
- *  Validates the file starts with `%PDF-`, stores to R2, creates placeholder pages.
- *  Library entitlement; administrators are exempt. */
+/**
+ * POST /api/library/books/:id/upload — upload a PDF for the book.
+ *  Validates the file starts with `%PDF-`, stores it in the media store, and points the book at
+ *  the stored key. Library entitlement; administrators are exempt.
+ */
 export const uploadBookFile = async (userId, bookId, file) => {
   await requireLibraryAccess(userId);
   const book = await Book.findById(bookId);
@@ -379,35 +432,63 @@ export const uploadBookFile = async (userId, bookId, file) => {
   if (!file.buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
     throw new AppError(422, 'UNSUPPORTED_TYPE', 'Books must be uploaded as a PDF.');
   }
-  if (file.buffer.length > 100 * 1024 * 1024) {
-    throw new AppError(422, 'FILE_TOO_LARGE', 'Books must be 25 MB or smaller.');
+  if (file.buffer.length > 50 * 1024 * 1024) {
+    throw new AppError(422, 'FILE_TOO_LARGE', 'Books must be 50 MB or smaller.');
   }
-  // Store to R2 (same signing logic as download)
-  const { presignGet } = await import('../utils/r2.js');
-  const fileName = `${book.code} - ${book.title}.pdf`;
-  const signed = presignGet(book.fileKey || `temp-${bookId}`, {
-    expiresSec: 60 * 60,
-    fileName,
-    contentType: 'application/pdf',
-  });
-  // Create placeholder pages
-  const pageOps = [];
-  for (let p = 1; p <= (book.pages ?? 10); p++) {
-    pageOps.push({
-      updateOne: {
-        filter: { book: book._id, page: p },
-        update: { $set: { blocks: [{ type: 'heading', text: `${book.code} — page ${p}` }] } },
-        upsert: true,
-      },
-    });
+
+  // Store the bytes under a fresh key, then point the book at it. The old object is removed
+  // best-effort afterwards so a replaced PDF does not linger in the store.
+  const previousKey = book.fileKey ?? null;
+  const key = `library/books/${book._id}/${crypto.randomUUID()}.pdf`;
+  try {
+    await putObject(key, file.buffer, 'application/pdf');
+  } catch (err) {
+    logger.error('R2 book upload failed', { err: err?.message ?? err });
+    throw new AppError(502, 'STORAGE_FAILED', 'The file could not be stored. Please try again.');
   }
-  if (pageOps.length) await BookPage.bulkWrite(pageOps, { ordered: false });
-  // Update book with fileKey and increment view count
-  await Book.findByIdAndUpdate(bookId, {
-    fileKey: signed.key,
-    viewCount: (book.viewCount ?? 0) + 1,
-  }).catch(() => {});
-  return { url: signed.url, fileName, key: signed.key, viewCount: (book.viewCount ?? 0) + 1 };
+  if (previousKey && previousKey !== key) await deleteObject(previousKey).catch(() => {});
+
+  /* Read the real page count, so the shelf, the pager and reading progress all agree with the
+     PDF itself. Placeholder pages stay as the fallback: if the count cannot be read, the book
+     keeps whatever the admin (or the seed) gave it. */
+  let pdfPages = null;
+  try {
+    const { PDFDocument } = await import('pdf-lib');
+    const doc = await PDFDocument.load(file.buffer, { ignoreEncryption: true, updateMetadata: false });
+    pdfPages = Math.min(Math.max(1, doc.getPageCount()), 4000);
+  } catch (err) {
+    logger.warn('Could not read the PDF page count', { err: err?.message ?? err });
+  }
+
+  const updated = await Book.findByIdAndUpdate(
+    bookId,
+    {
+      fileKey: key,
+      sizeBytes: file.buffer.length,
+      viewCount: (book.viewCount ?? 0) + 1,
+      ...(pdfPages ? { pages: pdfPages } : {}),
+    },
+    { new: true },
+  ).lean();
+
+  if (!pdfPages) {
+    // Fall back to placeholder pages so the reader always has something to render.
+    const pageOps = [];
+    for (let p = 1; p <= (book.pages ?? 10); p++) {
+      pageOps.push({
+        updateOne: {
+          filter: { book: book._id, page: p },
+          update: { $set: { blocks: [{ type: 'heading', text: `${book.code} — page ${p}` }] } },
+          upsert: true,
+        },
+      });
+    }
+    if (pageOps.length) await BookPage.bulkWrite(pageOps, { ordered: false });
+  }
+
+  const fileName = fileNameFor(updated ?? book);
+  const signed = presignGet(key, { expiresSec: 60 * 60, fileName, contentType: 'application/pdf' });
+  return { url: signed.url, fileName, key, sizeBytes: file.buffer.length, viewCount: updated?.viewCount ?? 1 };
 };
 
 
@@ -571,7 +652,7 @@ export const downloadNote = async (userId, noteId) => {
   if (!note) throw new AppError(404, 'NOTE_NOT_FOUND', 'That note does not exist.');
   const key = note.images?.[0] ?? note.imageKey;
   if (!key) throw new AppError(404, 'NOTE_NO_IMAGE', 'This note has no image attached.');
-  const fileName = `${note.title}.png`;
+  const fileName = safeFileName(note.title, 'png');
   const signed = presignGet(key, {
     expiresSec: 60 * 60,
     fileName,

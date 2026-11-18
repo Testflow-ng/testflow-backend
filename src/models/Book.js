@@ -45,6 +45,13 @@ const bookSchema = new mongoose.Schema(
     topics: { type: [String], default: [] },
     /** R2 key of the downloadable file. Null until the file is uploaded: download answers 403. */
     fileKey: { type: String, default: null },
+    /** Public share link token. Anyone holding `/s/book/:token` sees the title page and can open the file.
+     *  Absent — never null — until minted: the sparse unique index must not see it. */
+    shareToken: { type: String, default: undefined },
+    /** Who can read it. Paid items cannot be shared publicly. */
+    visibility: { type: String, enum: ['all_students', 'paid'], default: 'all_students' },
+    /** Price in kobo; 0 is free. */
+    priceMinor: { type: Number, default: 0, min: 0 },
     published: { type: Boolean, default: true },
     publishedAt: { type: Date, default: null },
   },
@@ -54,6 +61,7 @@ const bookSchema = new mongoose.Schema(
 // The shelf's own filters, in the order the list applies them.
 bookSchema.index({ published: 1, level: 1, semester: 1 });
 bookSchema.index({ code: 1 });
+bookSchema.index({ shareToken: 1 }, { unique: true, sparse: true });
 // Case-insensitive search runs over these fields; a course code or a title is the common entry.
 bookSchema.index({ title: 1 });
 

@@ -145,6 +145,29 @@ export const resultCardSvg = ({ subjectCode, score, correctCount, totalQuestions
 };
 
 /**
+ * A public library link (a book or a note). The card carries the code and title, and nothing
+ * about where the file lives: the recipient opening this link is all this image is for.
+ */
+export const libraryShareCardSvg = ({ code, title, meta, label }) => {
+  const titleLines = wrapText(title, { maxWidth: 1000, fontSize: 76, maxLines: 2 });
+  const titleMarkup = titleLines
+    .map((line, index) => text({ x: 72, y: 300 + index * 96, size: 76, weight: 800, content: line }))
+    .join('');
+
+  const codeSize = 40;
+  const codeWidth = Math.round(64 + estimateWidth(plainText(code).toUpperCase(), codeSize));
+
+  return svg(
+    `<rect x="72" y="170" width="${codeWidth}" height="76" rx="38" fill="${INK}"/>` +
+      text({ x: 72 + codeWidth / 2, y: 219, size: codeSize, weight: 800, fill: CREAM, content: plainText(code).toUpperCase(), anchor: 'middle' }) +
+      wordmark({ x: MARK_BOX.left + MARK_BOX.size + 18, y: MARK_BOX.top + MARK_BOX.size / 2 + 14, size: 40 }) +
+      titleMarkup +
+      text({ x: 76, y: 470, size: 34, fill: MUTED, content: meta }) +
+      pill({ x: 72, y: 500, height: 64, label: label ?? 'TestFlow Library', fontSize: 30, fill: INDIGO, color: '#ffffff' }),
+  );
+};
+
+/**
  * A public question, without its answer: the whole point of the link is that the recipient tries
  * it, so nothing here may give the key away.
  */

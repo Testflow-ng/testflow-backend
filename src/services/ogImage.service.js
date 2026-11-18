@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { MARK_BOX, questionCardSvg, resultCardSvg, siteCardSvg } from '../utils/cardSvg.js';
+import { MARK_BOX, libraryShareCardSvg, questionCardSvg, resultCardSvg, siteCardSvg } from '../utils/cardSvg.js';
 
 /**
  * Rasterise the share cards.
@@ -48,6 +48,9 @@ export const resultCardPng = (share) => renderCard(resultCardSvg(share));
 
 /** The card for a public question, which never shows the answer. */
 export const questionCardPng = (question) => renderCard(questionCardSvg(question));
+
+/** The card a shared library link shows in chat. */
+export const libraryShareCardPng = (share) => renderCard(libraryShareCardSvg(share));
 
 /**
  * The share card for a tenant site.

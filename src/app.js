@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config/env.js';
 import routes from './routes/index.js';
 import shareRoutes from './routes/share.routes.js';
+import libraryShareRoutes from './routes/libraryShare.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import { notFound, errorHandler } from './middleware/error.js';
 import { csrfProtect } from './middleware/csrf.js';
@@ -78,6 +79,7 @@ app.get('/health', (_req, res) => {
  * resource and never inherits the CSRF handshake that guards `/api`.
  * -------------------------------------------------------------------------- */
 app.use('/r', shareRoutes);
+app.use('/s', libraryShareRoutes);
 
 /* -------------------------------------------------------------------- notifications
  * The notification bell is read on every page load for every signed-in account, so it is

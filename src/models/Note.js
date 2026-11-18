@@ -71,6 +71,9 @@ const noteSchema = new mongoose.Schema(
       enum: ['slides', 'textbook'],
       default: 'slides',
     },
+    /** Public share link token. Anyone holding `/s/note/:token` sees the note and its images.
+     *  Absent — never null — until minted: the sparse unique index must not see it. */
+    shareToken: { type: String, default: undefined },
     /** Timestamps */
     createdAt: { type: Date, default: Date.now },
   },
@@ -81,5 +84,6 @@ const noteSchema = new mongoose.Schema(
 noteSchema.index({ subject: 1, visibility: 1 });
 noteSchema.index({ subject: 1, createdAt: -1 });
 noteSchema.index({ level: 1, semester: 1 });
+noteSchema.index({ shareToken: 1 }, { unique: true, sparse: true });
 
 export const Note = mongoose.model('Note', noteSchema);

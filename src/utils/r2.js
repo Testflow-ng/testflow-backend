@@ -71,10 +71,38 @@ const send = async (method, key, { body, contentType, cacheControl } = {}) => {
 };
 
 /**
- * Tests swap only the object-store writes, so a suite never touches the network. Signing stays the
- * real implementation, so a signed URL in a test is signed exactly as it is in production.
+ * Tests swap only the object-store reads and writes, so a suite never touches the network. Signing
+ * stays the real implementation, so a signed URL in a test is signed exactly as it is in production.
  */
 let storeOverride = null;
+
+/**
+ * Fetch an object into memory for the public share pages and the inline PDF reader: a crawler or a
+ * phone reads the object through us, so it never needs bucket access or credentials. Same signature
+ * as `send`, but materialised to memory — the callers accept up to 50 MB either way.
+ */
+export const getObjectBuffer = async (key) => {
+  const fake = storeOverride?.getObjectBuffer;
+  if (fake) return fake(key);
+  const c = creds();
+  const amzDate = stamp();
+  const payloadHash = sha256('');
+  const path = `/${c.bucket}/${key}`;
+  const headers = { host: c.host, 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate };
+  const s = signV4({ method: 'GET', path, headers, payloadHash, accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey, region: 'auto', amzDate });
+  const res = await fetch(`https://${c.host}${encPath(path)}`, {
+    method: 'GET',
+    headers: { ...headers, Authorization: `AWS4-HMAC-SHA256 Credential=${s.credential}, SignedHeaders=${s.signedHeaders}, Signature=${s.signature}` },
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!res.ok) {
+    const err = new Error(`R2 GET failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return { buffer: Buffer.from(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
+};
+
 export const setR2ForTests = (fake) => {
   storeOverride = fake;
 };

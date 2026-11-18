@@ -135,7 +135,7 @@ export const storeOrgImage = async (org, file, kind = 'image', actorId) => {
 /* ----------------------------------------------------------------- books */
 
 /** Keep in sync with `singleBookFile` in `middleware/uploadImage.js`. */
-const MAX_BOOK_BYTES = 100 * 1024 * 1024;
+const MAX_BOOK_BYTES = 50 * 1024 * 1024;
 const PDF_MAGIC = Buffer.from('%PDF-');
 
 /** A filename a Content-Disposition header and a student's Downloads folder can both live with. */
@@ -166,7 +166,7 @@ const safeBookFileName = (originalname, fallback) => {
 export const storeOrgBookFile = async (org, file, { existingSize = 0 } = {}) => {
   if (!file?.buffer?.length) throw new AppError(422, 'INVALID_UPLOAD', 'Send one PDF in the "file" field.');
   if (file.buffer.length > MAX_BOOK_BYTES) {
-    throw new AppError(422, 'FILE_TOO_LARGE', 'Books must be 25 MB or smaller.');
+    throw new AppError(422, 'FILE_TOO_LARGE', 'Books must be 50 MB or smaller.');
   }
   if (!file.buffer.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)) {
     throw new AppError(422, 'UNSUPPORTED_TYPE', 'Books must be uploaded as a PDF.');

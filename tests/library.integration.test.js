@@ -537,17 +537,218 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.equal((await admin.c.call('DELETE', `/library/books/${second.json.id}`)).status, 200);
   });
 
+  it('shares books and notes publicly through /s, with the OG tags a crawler reads', async () => {
+    // A real PDF, produced the same way a reader would parse it.
+    const { PDFDocument } = await import('pdf-lib');
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.addPage();
+    pdfDoc.addPage();
+    pdfDoc.addPage();
+    const pdf = Buffer.from(await pdfDoc.save());
+
+    // Fake the object store for the whole share flow.
+    const stored = new Map();
+    const { setR2ForTests } = await import('../src/utils/r2.js');
+    setR2ForTests({
+      putObject: async (key, body, contentType) => { stored.set(key, { body, contentType }); },
+      deleteObject: async (key) => { stored.delete(key); },
+      getObjectBuffer: async (key) => {
+        const hit = stored.get(key);
+        if (!hit) { const err = new Error('missing'); err.status = 404; throw err; }
+        return { buffer: hit.body, contentType: hit.contentType };
+      },
+    });
+
+    const admin = await account('admin');
+    const code = `SHR${uniq().toUpperCase().slice(0, 4)}`;
+    const created = await admin.c.call('POST', '/library/books', { body: { code, title: 'Share Target' } });
+    assert.equal(created.status, 200, JSON.stringify(created.json));
+    const bookId = created.json.id;
+
+    // Upload the PDF the way the console does.
+    const jar = admin.c.jar;
+    const cookie = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+    const fd = new FormData();
+    fd.append('file', new Blob([pdf], { type: 'application/pdf' }), 'share-target.pdf');
+    const uploadRes = await fetch(`${base}/api/library/books/${bookId}/upload`, {
+      method: 'POST',
+      headers: { Cookie: cookie, ...(jar.tf_csrf ? { 'X-CSRF-Token': jar.tf_csrf } : {}) },
+      body: fd,
+    });
+    assert.equal(uploadRes.status, 200, await uploadRes.text());
+
+    // pdf-lib counted the pages, replacing the placeholder count.
+    const uploaded = await m.Book.findById(bookId).lean();
+    assert.equal(uploaded.pages, 3, 'the real page count is stored on the book');
+
+    // Minting the share link.
+    const minted = await admin.c.call('GET', `/library/books/${bookId}/share`);
+    assert.equal(minted.status, 200, JSON.stringify(minted.json));
+    const { shareUrl } = minted.json;
+    assert.match(shareUrl, /\/s\/book\//);
+    const token = shareUrl.split('/s/book/')[1];
+
+    // A student without a pass cannot mint one (they cannot read the book either).
+    const student = await account('student');
+    const refused = await student.c.call('GET', `/library/books/${bookId}/share`);
+    assert.equal(refused.status, 402);
+
+    // The public page renders with the OG tags a crawler reads, no session at all.
+    const page = await fetch(shareUrl);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.match(html, /<meta property="og:title"/);
+    assert.match(html, /<meta property="og:image"/);
+    assert.match(html, new RegExp(code));
+    assert.match(html, /share-target|Share Target/);
+
+    // The file itself streams, byte for byte.
+    const fileRes = await fetch(`${shareUrl}/file`);
+    assert.equal(fileRes.status, 200);
+    assert.equal(fileRes.headers.get('content-type'), 'application/pdf');
+    assert.ok(Buffer.from(await fileRes.arrayBuffer()).equals(pdf), 'the shared file is the uploaded PDF');
+
+    // A download through the public link increments the counter.
+    const dlRes = await fetch(`${shareUrl}/file?download=1`);
+    assert.equal(dlRes.status, 200);
+    assert.match(dlRes.headers.get('content-disposition') ?? '', /^attachment/);
+    const counted = await m.Book.findById(bookId).lean();
+    assert.equal(counted.downloadCount, 1);
+
+    // The card is a PNG.
+    const card = await fetch(`${shareUrl}/card.png`);
+    assert.equal(card.status, 200);
+    const cardBuf = Buffer.from(await card.arrayBuffer());
+    assert.equal(cardBuf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+
+    // An unknown token is an HTML 404, not an API envelope.
+    const missing = await fetch(`${base}/s/book/deadbeef.deadbeef`);
+    assert.equal(missing.status, 404);
+    assert.match(await missing.text(), /not active/i);
+
+    // The same for a note: one note, three images, one share link.
+    const { Subject } = await import('../src/models/Subject.js');
+    const sharp = (await import('sharp')).default;
+    const ncode = `NT${uniq().toUpperCase().slice(0, 3)}`;
+    await Subject.create({ code: ncode, title: 'Test Notes', level: '100' });
+    const noteCreated = await admin.c.call('POST', '/library/notes', {
+      body: { subjectCode: ncode, title: 'Lecture 1', level: 100, semester: 'first' },
+    });
+    assert.equal(noteCreated.status, 201, JSON.stringify(noteCreated.json));
+    const noteId = noteCreated.json.id;
+
+    const pngFor = (color) => sharp({ create: { width: 12, height: 10, channels: 3, background: color } }).png().toBuffer();
+    const images = [await pngFor({ r: 180, g: 60, b: 20 }), await pngFor({ r: 30, g: 120, b: 90 }), await pngFor({ r: 40, g: 60, b: 160 })];
+    const noteFd = new FormData();
+    images.forEach((buf, i) => noteFd.append('images', new Blob([buf], { type: 'image/png' }), `page${i + 1}.png`));
+    const noteUpload = await fetch(`${base}/api/library/notes/${noteId}/images`, {
+      method: 'POST',
+      headers: { Cookie: cookie, ...(jar.tf_csrf ? { 'X-CSRF-Token': jar.tf_csrf } : {}) },
+      body: noteFd,
+    });
+    assert.equal(noteUpload.status, 200, await noteUpload.text());
+
+    const noteShare = await admin.c.call('GET', `/library/notes/${noteId}/share`);
+    assert.equal(noteShare.status, 200, JSON.stringify(noteShare.json));
+    const noteUrl = noteShare.json.shareUrl;
+    assert.match(noteUrl, /\/s\/note\//);
+
+    const notePage = await fetch(noteUrl);
+    assert.equal(notePage.status, 200);
+    const noteHtml = await notePage.text();
+    assert.match(noteHtml, /<meta property="og:image"/);
+    assert.match(noteHtml, /Lecture 1/);
+    assert.match(noteHtml, new RegExp(ncode));
+
+    // Every uploaded image is served on the public page path.
+    for (let index = 0; index < 3; index += 1) {
+      const img = await fetch(`${noteUrl}/image/${index}`);
+      assert.equal(img.status, 200, `image ${index}`);
+      assert.match(img.headers.get('content-type') ?? '', /image\/webp/);
+      const body = Buffer.from(await img.arrayBuffer());
+      assert.ok(body.length > 50, `image ${index} has bytes`);
+    }
+
+    // The Open Graph image is a PNG (crawlers that refuse WebP still render it).
+    const og = await fetch(`${noteUrl}/og.png`);
+    assert.equal(og.status, 200);
+    const ogBuf = Buffer.from(await og.arrayBuffer());
+    assert.equal(ogBuf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+
+    // Note images are numbered by reading order; an out-of-range index is a plain 404.
+    const outOfRange = await fetch(`${noteUrl}/image/99`);
+    assert.equal(outOfRange.status, 404);
+
+    await admin.c.call('DELETE', `/library/books/${bookId}`);
+    await admin.c.call('DELETE', `/library/notes/${noteId}`);
+    setR2ForTests(null);
+  });
+
+  it('refuses to mint public links for paid books and notes, and kills links minted before the lock', async () => {
+    const admin = await account('admin');
+
+    // A paid book cannot be shared at all.
+    const code = `PD${uniq().toUpperCase().slice(0, 4)}`;
+    const paidBook = await admin.c.call('POST', '/library/books', { body: { code, title: 'Paid Target', visibility: 'paid', priceMinor: 50000 } });
+    assert.equal(paidBook.status, 200, JSON.stringify(paidBook.json));
+    const refusedBook = await admin.c.call('GET', `/library/books/${paidBook.json.id}/share`);
+    assert.equal(refusedBook.status, 403);
+    assert.equal(refusedBook.json.error.code, 'SHARE_NOT_ALLOWED');
+
+    // A free book shared, then flipped to paid: the public link dies.
+    const flipCode = `FR${uniq().toUpperCase().slice(0, 4)}`;
+    const flipBook = await admin.c.call('POST', '/library/books', { body: { code: flipCode, title: 'Flip Target' } });
+    const minted = await admin.c.call('GET', `/library/books/${flipBook.json.id}/share`);
+    assert.equal(minted.status, 200, JSON.stringify(minted.json));
+    const flipped = await admin.c.call('PUT', `/library/books/${flipBook.json.id}`, { body: { visibility: 'paid' } });
+    assert.equal(flipped.status, 200, JSON.stringify(flipped.json));
+    const deadPage = await fetch(minted.json.shareUrl);
+    assert.equal(deadPage.status, 404);
+    const deadFile = await fetch(`${minted.json.shareUrl}/file`);
+    assert.equal(deadFile.status, 404);
+
+    // A paid note cannot be shared either.
+    const { Subject } = await import('../src/models/Subject.js');
+    const ncode = `PNT${uniq().slice(0, 2).toUpperCase()}`;
+    await Subject.create({ code: ncode, title: 'Paid Notes', level: '100' });
+    const paidNote = await admin.c.call('POST', '/library/notes', {
+      body: { subjectCode: ncode, title: 'Paid lecture', visibility: 'paid', level: 100, semester: 'first' },
+    });
+    assert.equal(paidNote.status, 201, JSON.stringify(paidNote.json));
+    const refusedNote = await admin.c.call('GET', `/library/notes/${paidNote.json.id}/share`);
+    assert.equal(refusedNote.status, 403);
+    assert.equal(refusedNote.json.error.code, 'SHARE_NOT_ALLOWED');
+
+    await admin.c.call('DELETE', `/library/books/${paidBook.json.id}`);
+    await admin.c.call('DELETE', `/library/books/${flipBook.json.id}`);
+    await admin.c.call('DELETE', `/library/notes/${paidNote.json.id}`);
+  });
+
   it('lets an administrator upload a book PDF without a pass', async () => {
+    // Fake the object store: the bytes the upload hands to storage are kept in memory.
+    const stored = new Map();
+    const { setR2ForTests } = await import('../src/utils/r2.js');
+    setR2ForTests({
+      putObject: async (key, body, contentType) => { stored.set(key, { body, contentType }); },
+      deleteObject: async (key) => { stored.delete(key); },
+      getObjectBuffer: async (key) => {
+        const hit = stored.get(key);
+        if (!hit) { const err = new Error('missing'); err.status = 404; throw err; }
+        return { buffer: hit.body, contentType: hit.contentType };
+      },
+    });
+
     const admin = await account('admin');
     const code = `UPL${uniq().toUpperCase().slice(0, 5)}`;
     const created = await admin.c.call('POST', '/library/books', { body: { code, title: 'Upload target' } });
     assert.equal(created.status, 200, JSON.stringify(created.json));
     const bookId = created.json.id;
 
+    const pdf = Buffer.from('%PDF-1.4\n% test\n');
     const jar = admin.c.jar;
     const cookie = Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
     const fd = new FormData();
-    fd.append('file', new Blob([Buffer.from('%PDF-1.4\n% test\n')], { type: 'application/pdf' }), 'book.pdf');
+    fd.append('file', new Blob([pdf], { type: 'application/pdf' }), 'book.pdf');
     const res = await fetch(`${base}/api/library/books/${bookId}/upload`, {
       method: 'POST',
       headers: { Cookie: cookie, ...(jar.tf_csrf ? { 'X-CSRF-Token': jar.tf_csrf } : {}) },
@@ -559,7 +760,20 @@ describe('Library shelf, reader, download and the Student Pass gate (integration
     assert.ok(json.url, 'the upload signs a file url');
     assert.ok(json.key, 'the upload reports the stored key');
 
+    // The uploaded bytes were stored under the reported key, exactly as received.
+    const object = stored.get(json.key);
+    assert.ok(object, 'the uploaded PDF was stored in the media store');
+    assert.equal(object.contentType, 'application/pdf');
+    assert.ok(Buffer.from(object.body).subarray(0, 5).equals(Buffer.from('%PDF-')), 'the stored object is the PDF, not a signature stub');
+
+    // The book now points at the stored object and carries its size, so the download signs a real key.
+    const { Book: BookModel } = await import('../src/models/Book.js');
+    const updated = await BookModel.findById(bookId).lean();
+    assert.equal(updated.fileKey, json.key);
+    assert.equal(updated.sizeBytes, pdf.length);
+
     await admin.c.call('DELETE', `/library/books/${bookId}`);
+    setR2ForTests(null);
   });
 
   it('still refuses shelf writes to a student without a pass', async () => {

@@ -33,6 +33,8 @@ router.get('/books/:id/pages', validate(bookPagesSchema), library.getBookPages);
 router.post('/books/:id/bookmark', validate(bookIdSchema), library.toggleBookmark);
 router.put('/books/:id/progress', validate(bookProgressSchema), library.saveProgress);
 router.get('/books/:id/download', downloadLimiter, validate(bookIdSchema), library.downloadBook);
+router.get('/books/:id/file', validate(bookIdSchema), library.getBookFile);
+router.get('/books/:id/share', validate(bookIdSchema), library.getBookShare);
 
 /** POST /api/library/books — create a new book (title, code, etc.) with fileKey: null and placeholder pages.
  *  Library entitlement; administrators are exempt. */
@@ -92,6 +94,9 @@ router.delete('/notes/:id', validate(noteIdSchema), library.deleteNote);
 
 /** GET /api/library/notes/:id — note detail with short-lived URLs for its images */
 router.get('/notes/:id', validate(noteIdSchema), library.getNote);
+
+/** GET /api/library/notes/:id/share — mint (or return) the public link for this note. */
+router.get('/notes/:id/share', validate(noteIdSchema), library.getNoteShare);
 
 /** GET /api/library/notes/:id/download — download note image */
 router.get('/notes/:id/download', library.downloadNote);

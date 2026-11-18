@@ -1,5 +1,8 @@
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import * as library from '../services/library.service.js';
+import { mintBookShare, mintNoteShare } from '../services/libraryShare.service.js';
+import { requestOrigin } from '../utils/requestOrigin.js';
+import { contentDisposition } from '../utils/contentDisposition.js';
 
 /**
  * The Library. Every route is a student's own, and the shelf is the same for everyone, so the
@@ -33,6 +36,29 @@ export const saveProgress = asyncHandler(async (req, res) => {
 
 export const downloadBook = asyncHandler(async (req, res) => {
   res.json(await library.getBookDownload(req.user, req.params.id));
+});
+
+/** GET /api/library/books/:id/file — the PDF bytes, inline, for the reader. */
+export const getBookFile = asyncHandler(async (req, res) => {
+  const { buffer, fileName } = await library.getBookFile(req.user, req.params.id);
+  res
+    .set({
+      'Content-Type': 'application/pdf',
+      'Content-Length': buffer.length,
+      'Content-Disposition': contentDisposition('inline', fileName),
+      'Cache-Control': 'private, no-store',
+    })
+    .send(buffer);
+});
+
+/** GET /api/library/books/:id/share — mint (or return) the public link for this book. */
+export const getBookShare = asyncHandler(async (req, res) => {
+  res.json(await mintBookShare(req.user, req.params.id, requestOrigin(req)));
+});
+
+/** GET /api/library/notes/:id/share — mint (or return) the public link for this note. */
+export const getNoteShare = asyncHandler(async (req, res) => {
+  res.json(await mintNoteShare(req.user, req.params.id, requestOrigin(req)));
 });
 
 
